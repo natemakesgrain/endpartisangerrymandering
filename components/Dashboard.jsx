@@ -3229,9 +3229,64 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     };
   }, [districtPaths, sg]);
 
-  // State zoom: viewBox computed by labelLayout (extends to fit external label columns)
+  // ---- Zoom & pan ------------------------------------------------------
+  // The base viewBox comes from labelLayout (it extends past the state
+  // bbox to fit the external label columns). The +/- buttons shrink or
+  // expand a viewBox kept centered on that base; once zoomed in the user
+  // can click-drag to pan. Pan is clamped every render so the content can
+  // never be dragged off the canvas, and re-clamps safely if the base
+  // viewBox changes underneath (e.g. when the tract upgrade lands).
+  const ZOOM_MIN = 1, ZOOM_MAX = 6, ZOOM_STEP = 1.6;
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const svgRef = useRef(null);
+  const dragRef = useRef(null);
+  // Reset the view whenever a different state is opened.
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); setDragging(false); }, [stateCode]);
+
   const [x0, y0, x1, y1] = sg.bbox;
-  const viewBox = `${labelLayout.viewBox.x} ${labelLayout.viewBox.y} ${labelLayout.viewBox.w} ${labelLayout.viewBox.h}`;
+  const _vb = labelLayout.viewBox;
+  const vbW = _vb.w / zoom;
+  const vbH = _vb.h / zoom;
+  const maxPanX = Math.max(0, (_vb.w - vbW) / 2);
+  const maxPanY = Math.max(0, (_vb.h - vbH) / 2);
+  const panX = Math.max(-maxPanX, Math.min(maxPanX, pan.x));
+  const panY = Math.max(-maxPanY, Math.min(maxPanY, pan.y));
+  const vbX = _vb.x + (_vb.w - vbW) / 2 + panX;
+  const vbY = _vb.y + (_vb.h - vbH) / 2 + panY;
+  const viewBox = `${vbX} ${vbY} ${vbW} ${vbH}`;
+
+  const zoomBy = (factor) => {
+    const nz = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+    setZoom(nz);
+    if (nz <= ZOOM_MIN) setPan({ x: 0, y: 0 });
+  };
+  const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const onPointerDown = (e) => {
+    if (zoom <= 1 || !svgRef.current) return;
+    const r = svgRef.current.getBoundingClientRect();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, px: panX, py: panY, rw: r.width, rh: r.height };
+    setDragging(true);
+    svgRef.current.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = (e.clientX - d.sx) * (vbW / d.rw);
+    const dy = (e.clientY - d.sy) * (vbH / d.rh);
+    setPan({
+      x: Math.max(-maxPanX, Math.min(maxPanX, d.px - dx)),
+      y: Math.max(-maxPanY, Math.min(maxPanY, d.py - dy)),
+    });
+  };
+  const endDrag = (e) => {
+    if (dragRef.current && svgRef.current && e && e.pointerId != null) {
+      svgRef.current.releasePointerCapture?.(e.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+  };
 
   const seatsD = districts.filter((d) => d.winner === 'D').length;
   const seatsR = districts.filter((d) => d.winner === 'R').length;
@@ -3276,7 +3331,27 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       </div>
       <div style={S.detailGrid} className="r-detailgrid">
         <div style={S.detailMapWrap}>
-          <svg viewBox={viewBox} style={S.detailMapSvg}>
+          <div style={S.detailMapInner}>
+            <div style={S.zoomControls}>
+              <button type="button" aria-label="Zoom in" title="Zoom in"
+                onClick={() => zoomBy(ZOOM_STEP)} disabled={zoom >= ZOOM_MAX}
+                style={{ ...S.zoomBtn, ...(zoom >= ZOOM_MAX ? S.zoomBtnOff : null) }}>+</button>
+              <button type="button" aria-label="Zoom out" title="Zoom out"
+                onClick={() => zoomBy(1 / ZOOM_STEP)} disabled={zoom <= ZOOM_MIN}
+                style={{ ...S.zoomBtn, ...(zoom <= ZOOM_MIN ? S.zoomBtnOff : null) }}>−</button>
+              <button type="button" aria-label="Reset view" title="Reset view"
+                onClick={resetView} disabled={zoom === 1 && panX === 0 && panY === 0}
+                style={{ ...S.zoomBtn, ...S.zoomBtnReset, ...((zoom === 1 && panX === 0 && panY === 0) ? S.zoomBtnOff : null) }}>⤢</button>
+            </div>
+          <svg
+            ref={svgRef}
+            viewBox={viewBox}
+            style={{ ...S.detailMapSvg, cursor: zoom > 1 ? (dragging ? 'grabbing' : 'grab') : 'default', touchAction: zoom > 1 ? 'none' : 'auto' }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
             {/* Layer 1: counties colored by their own D-share */}
             {stateUnits.map((u) => (
               <path
@@ -3387,6 +3462,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               );
             })()}
           </svg>
+          </div>
         </div>
         <div style={S.detailPanel}>
           <div style={S.detailPanelHeader}>
@@ -4242,6 +4318,11 @@ const S = {
   detailGrid: { maxWidth: 1400, margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) minmax(280px, 1fr)", gap: 32, alignItems: "stretch" },
   detailMapWrap: { background: "#fdfaf2", border: "1px solid rgba(26,26,20,0.12)", padding: 20, boxShadow: "0 1px 0 rgba(26,26,20,0.04), 0 8px 24px rgba(26,26,20,0.04)", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 },
   detailMapSvg: { display: "block", width: "100%", height: "auto", maxHeight: 720 },
+  detailMapInner: { position: "relative", width: "100%" },
+  zoomControls: { position: "absolute", top: 10, right: 10, display: "flex", flexDirection: "column", gap: 6, zIndex: 3 },
+  zoomBtn: { width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, background: "#fdfaf2", color: "#1a1a14", border: "1px solid rgba(26,26,20,0.28)", fontFamily: '"JetBrains Mono", monospace', fontSize: 20, lineHeight: 1, cursor: "pointer", boxShadow: "0 1px 3px rgba(26,26,20,0.12)", userSelect: "none" },
+  zoomBtnReset: { fontSize: 15 },
+  zoomBtnOff: { opacity: 0.32, cursor: "default", boxShadow: "none" },
   detailPanel: { background: "#fdfaf2", border: "1px solid rgba(26,26,20,0.12)", padding: "24px 24px", boxShadow: "0 1px 0 rgba(26,26,20,0.04), 0 8px 24px rgba(26,26,20,0.04)", display: "flex", flexDirection: "column", gap: 18 },
   detailPanelHeader: { paddingBottom: 16, borderBottom: "1px solid rgba(26,26,20,0.12)" },
   detailSeats: { fontFamily: '"Fraunces", serif', fontSize: 32, fontWeight: 500, lineHeight: 1, fontVariationSettings: '"opsz" 36', letterSpacing: "-0.015em", marginTop: 6 },
