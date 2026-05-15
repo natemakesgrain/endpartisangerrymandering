@@ -25,6 +25,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { geoAlbersUsa } from 'd3-geo';
+import mapshaper from 'mapshaper';
 import { runReCom } from './lib/recom.mjs';
 
 // 2020-apportionment House seats (copied from Dashboard.jsx SEATS_BY_STATE
@@ -53,7 +54,9 @@ const SH = { shell: 'bash' };
 const bp = (p) => p.replace(/^([A-Za-z]):/, (_, d) => '/' + d.toLowerCase());
 const sh = (cmd) => execSync(cmd, SH);
 const PRES_YEARS = [2008, 2012, 2016, 2020];
-const SIMPLIFY_TOL = 0.06;   // app units (~90 m) Douglas–Peucker tolerance
+// mapshaper Visvalingam simplify retention (% of vertices kept). Applied
+// to the SHARED-ARC topology, so precinct borders stay coincident.
+const SIMPLIFY_PCT = 14;
 const QUANT = 100;           // 2-decimal coordinate quantization
 
 // USPS → 2-digit state FIPS
@@ -67,52 +70,14 @@ const FIPS = { AL:'01',AK:'02',AZ:'04',AR:'05',CA:'06',CO:'08',CT:'09',DE:'10',
 // Default: the competitive battlegrounds + the three biggest states. The
 // architecture falls back to the model substrate for any state without a
 // precinct file, so this set is enough to exercise the feature end-to-end.
-const DEFAULT_STATES = ['MI','WI','PA','GA','AZ','NV','NC','NH','MN','VA','OH','FL','TX','CA'];
+// All 50 states. Single-seat states (AK/DE/ND/SD/VT/WY) still get real
+// precinct geometry + returns for the map; their one "district" is trivial.
+const DEFAULT_STATES = Object.keys(FIPS);
 
 const proj = geoAlbersUsa().scale(1300).translate([487.5, 305]);
 
-function dp(points, tol) {                       // Douglas–Peucker
-  if (points.length < 3) return points;
-  const keep = new Uint8Array(points.length);
-  keep[0] = keep[points.length - 1] = 1;
-  const stack = [[0, points.length - 1]];
-  const t2 = tol * tol;
-  while (stack.length) {
-    const [a, b] = stack.pop();
-    const [ax, ay] = points[a], [bx, by] = points[b];
-    let dx = bx - ax, dy = by - ay, dmax = 0, idx = -1;
-    const len2 = dx * dx + dy * dy || 1e-12;
-    for (let i = a + 1; i < b; i++) {
-      const [px, py] = points[i];
-      const t = ((px - ax) * dx + (py - ay) * dy) / len2;
-      const cx = ax + t * dx, cy = ay + t * dy;
-      const d2 = (px - cx) ** 2 + (py - cy) ** 2;
-      if (d2 > dmax) { dmax = d2; idx = i; }
-    }
-    if (dmax > t2 && idx !== -1) { keep[idx] = 1; stack.push([a, idx], [idx, b]); }
-  }
-  const out = [];
-  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
-  return out;
-}
 const q = (v) => Math.round(v * QUANT) / QUANT;
 
-function projectRing(ring, raw = false) {
-  const pts = [];
-  for (const [lon, lat] of ring) {
-    const p = proj([lon, lat]);
-    if (p) pts.push(p);
-  }
-  if (pts.length < 4) return null;
-  const s = (raw ? pts : dp(pts, SIMPLIFY_TOL)).map(([x, y]) => [q(x), q(y)]);
-  // drop consecutive dupes after quantization
-  const r = [s[0]];
-  for (let i = 1; i < s.length; i++)
-    if (s[i][0] !== r[r.length - 1][0] || s[i][1] !== r[r.length - 1][1]) r.push(s[i]);
-  if (r.length < 4) return null;
-  if (r[0][0] !== r[r.length - 1][0] || r[0][1] !== r[r.length - 1][1]) r.push(r[0]);
-  return r.length >= 4 ? r : null;
-}
 function ringArea(r) {
   let a = 0;
   for (let i = 0, n = r.length, j = n - 1; i < n; j = i++)
@@ -120,7 +85,7 @@ function ringArea(r) {
   return Math.abs(a / 2);
 }
 
-function buildState(st) {
+async function buildState(st) {
   const fips = FIPS[st];
   if (!fips) { console.log(`  skip ${st}: unknown`); return; }
   mkdirSync(TMP, { recursive: true });
@@ -135,9 +100,16 @@ function buildState(st) {
   const gj = JSON.parse(readFileSync(`${dir}/${gjFile}`, 'utf8'));
   const graph = grFile ? JSON.parse(readFileSync(`${dir}/${grFile}`, 'utf8')) : {};
 
-  const precincts = [];
-  const idIdx = new Map();
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  // ---- Pass 1: parse attrs + project geometry (NO simplification) ------
+  // Build a projected GeoJSON FeatureCollection that mapshaper will
+  // simplify TOPOLOGICALLY — i.e. it builds shared arcs first, simplifies
+  // those, so a border between two precincts stays a single shared edge.
+  // (Per-ring simplification, which this replaces, made the two sides
+  // diverge → the district tracer couldn't cancel interior edges → the
+  // black-mesh artifact.)
+  const meta = new Map();      // id → { pop, v }
+  const cxy = new Map();       // id → projected centroid (collapse fallback)
+  const inFeatures = [];
   for (const f of gj.features) {
     const ds = f.properties.datasets || {};
     const id = String(f.properties.id);
@@ -148,33 +120,83 @@ function buildState(st) {
       const e = ds[`E_${String(y).slice(2)}_PRES`];
       if (e && (e.Dem || e.Rep)) { v[y] = [Math.round(e.Dem || 0), Math.round(e.Rep || 0)]; anyVotes = true; }
     }
-    // A precinct with votes must NEVER be dropped for geometry reasons —
-    // doing so silently biases the statewide total (tiny dense urban
-    // precincts are disproportionately Democratic). Outer rings therefore
-    // degrade gracefully: DP-simplified → quantized-only → a tiny square
-    // at the precinct centroid. Holes may be dropped (no vote loss).
-    if (!anyVotes) continue;
+    if (!anyVotes) continue; // a precinct with no votes can't bias totals
     const rawPolys = f.geometry.type === 'MultiPolygon'
       ? f.geometry.coordinates : [f.geometry.coordinates];
-    const polys = [];
+    const outPolys = [];
+    let sx = 0, sy = 0, sc = 0;
     for (const poly of rawPolys) {
       const rings = [];
-      for (let ri = 0; ri < poly.length; ri++) {
-        let pr = projectRing(poly[ri]);
-        if (ri === 0 && (!pr || ringArea(pr) <= 0.0005)) pr = projectRing(poly[ri], true);
-        if (ri === 0 ? pr : (pr && ringArea(pr) > 0.05)) rings.push(pr);
+      for (const ring of poly) {
+        const pr = [];
+        for (const [lon, lat] of ring) {
+          const p = proj([lon, lat]);
+          if (p) { pr.push([p[0], p[1]]); sx += p[0]; sy += p[1]; sc++; }
+        }
+        if (pr.length >= 4) rings.push(pr);
       }
-      if (rings.length) polys.push(rings);
+      if (rings.length) outPolys.push(rings);
+    }
+    meta.set(id, { pop, v });
+    if (sc) cxy.set(id, [sx / sc, sy / sc]);
+    if (outPolys.length) {
+      inFeatures.push({
+        type: 'Feature', properties: { id },
+        geometry: { type: 'MultiPolygon', coordinates: outPolys },
+      });
+    }
+  }
+
+  // ---- Topology-aware simplify (mapshaper) ----------------------------
+  // `snap` on import merges coincident vertices → a proper shared-arc
+  // topology; `-simplify keep-shapes` then thins those SHARED arcs, so a
+  // border between two precincts stays one identical edge (what makes the
+  // district tracer cancel interior edges → clean outlines). `-clean` is
+  // deliberately omitted: it does full overlap/sliver repair (O(n²)-ish
+  // intersection work that dominated runtime — ~3 min on small states,
+  // far worse on CA/NY) and is unnecessary here, since correctness only
+  // needs shared edges to coincide, which `snap`+topology-simplify already
+  // guarantees. Verified: boundary-edge fraction stays ≈10%.
+  const fc = JSON.stringify({ type: 'FeatureCollection', features: inFeatures });
+  const cmd = `-i in.json snap -simplify ${SIMPLIFY_PCT}% keep-shapes planar ` +
+              `-o out.json format=geojson`;
+  const res = await mapshaper.applyCommands(cmd, { 'in.json': fc });
+  const simplified = JSON.parse(res['out.json'] || res[Object.keys(res)[0]]);
+
+  // ---- Pass 2: quantize + assemble (shared edges now coincide) --------
+  const precincts = [];
+  const idIdx = new Map();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const quantRing = (ring) => {
+    const r = [];
+    for (const [x, y] of ring) {
+      const qx = q(x), qy = q(y);
+      if (!r.length || qx !== r[r.length - 1][0] || qy !== r[r.length - 1][1]) r.push([qx, qy]);
+    }
+    if (r.length >= 4 &&
+        (r[0][0] !== r[r.length - 1][0] || r[0][1] !== r[r.length - 1][1])) r.push(r[0]);
+    return r.length >= 4 ? r : null;
+  };
+  const seen = new Set();
+  for (const f of simplified.features || []) {
+    const id = String(f.properties.id);
+    const m = meta.get(id);
+    if (!m || seen.has(id)) continue;
+    seen.add(id);
+    const g = f.geometry;
+    const raw = !g ? [] : g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
+    const polys = [];
+    for (const poly of raw) {
+      const rings = [];
+      for (let ri = 0; ri < poly.length; ri++) {
+        const qr = quantRing(poly[ri]);
+        if (ri === 0 ? qr : (qr && ringArea(qr) > 0.04)) rings.push(qr);
+      }
+      if (rings.length && rings[0]) polys.push(rings);
     }
     if (!polys.length) {
-      // Geometry collapsed entirely — synthesize a sub-pixel footprint at
-      // the precinct's projected centroid so its votes/pop still count.
-      let sx = 0, sy = 0, c = 0;
-      for (const [lon, lat] of (rawPolys[0]?.[0] || [])) {
-        const p = proj([lon, lat]); if (p) { sx += p[0]; sy += p[1]; c++; }
-      }
-      if (!c) continue;
-      const cx = q(sx / c), cy = q(sy / c), e = 0.03;
+      const c = cxy.get(id); if (!c) continue;       // no-drop guarantee
+      const cx = q(c[0]), cy = q(c[1]), e = 0.03;
       polys.push([[[cx - e, cy - e], [cx + e, cy - e], [cx + e, cy + e], [cx - e, cy + e], [cx - e, cy - e]]]);
     }
     for (const rings of polys) for (const r of rings) for (const [x, y] of r) {
@@ -182,7 +204,16 @@ function buildState(st) {
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
     idIdx.set(id, precincts.length);
-    precincts.push({ id, pop, v, polys });
+    precincts.push({ id, pop: m.pop, v: m.v, polys });
+  }
+  // No-drop safety: any voted precinct mapshaper dropped → centroid square.
+  for (const [id, m] of meta) {
+    if (idIdx.has(id)) continue;
+    const c = cxy.get(id); if (!c) continue;
+    const cx = q(c[0]), cy = q(c[1]), e = 0.03;
+    idIdx.set(id, precincts.length);
+    precincts.push({ id, pop: m.pop, v: m.v,
+      polys: [[[[cx - e, cy - e], [cx + e, cy - e], [cx + e, cy + e], [cx - e, cy + e], [cx - e, cy - e]]]] });
   }
 
   // Adjacency from DRA's rook graph (drop OUT_OF_STATE + unknown ids).
@@ -238,29 +269,89 @@ function buildState(st) {
     const N = precincts.length;
     const burnIn = Math.max(400, Math.min(2200, Math.round(N * 0.12)));
     const tgt = precincts.reduce((s, p) => s + p.pop, 0) / seats;
-    for (const bs of BAKE_SEEDS) {
-      const t0 = Date.now();
-      const r = runReCom(miniUnits, adjArr, seats, stateSeed(bs, st),
-        { burnIn, tolerance: 0.02 });
-      if (!r) { console.log(`    bake seed ${bs}: FAILED`); continue; }
+    const devOf = (r) => {
       let mx = 0;
       for (const dp of r.districtPop) {
         const dv = Math.abs(dp - tgt) / tgt; if (dv > mx) mx = dv;
       }
+      return mx;
+    };
+    for (const bs of BAKE_SEEDS) {
+      const t0 = Date.now();
+      // Compactness ladder: try a STRICT graph-isoperimetric threshold
+      // first (favors round, contiguous districts — the "compact feeling"),
+      // relax only if it can't hit the ±5 % legal bound. Keep the first
+      // attempt that's legal, else the lowest-deviation one. This is what
+      // makes the rendered precinct districts read as clean blocks rather
+      // than the scribbly tendrils a single loose run produced in metros.
+      let best = null, bestDev = Infinity, usedC = null;
+      for (const c of [0.9, 1.4, 2.2]) {
+        const r = runReCom(miniUnits, adjArr, seats, stateSeed(bs, st),
+          { burnIn, tolerance: 0.02, compactness: c });
+        if (!r) continue;
+        const dev = devOf(r);
+        if (dev < bestDev) { best = r; bestDev = dev; usedC = c; }
+        if (dev <= 0.05) break; // legal + compact-as-possible — take it
+      }
+      if (!best) { console.log(`    bake seed ${bs}: FAILED`); continue; }
       const bytes = Buffer.alloc(N);
       for (let i = 0; i < N; i++) {
-        const d = r.assignment[i];
+        const d = best.assignment[i];
         bytes[i] = d < 0 || d > 254 ? 255 : d;
       }
-      baked[bs] = { a: bytes.toString('base64'), maxDev: +mx.toFixed(4) };
-      console.log(`    bake seed ${bs}: maxDev ${(mx * 100).toFixed(1)}% ` +
-        `(${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+      baked[bs] = { a: bytes.toString('base64'), maxDev: +bestDev.toFixed(4) };
+      console.log(`    bake seed ${bs}: maxDev ${(bestDev * 100).toFixed(1)}% ` +
+        `c=${usedC} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
     }
   } else {
     // Single-district state: trivial assignment.
     const bytes = Buffer.alloc(precincts.length, 0);
     for (const bs of BAKE_SEEDS) baked[bs] = { a: bytes.toString('base64'), maxDev: 0 };
   }
+
+  // ---- Dissolve precincts → district polygons (per baked seed) ---------
+  // The national view must NOT build 50 states of precinct geometry in the
+  // browser (~71 MB, ~180k paths — unusable). Instead we dissolve precincts
+  // into their ~k district polygons offline (mapshaper, topology-aware) and
+  // ship a tiny per-state district file the national view renders directly
+  // (~435 polygons nationwide). Full precinct geometry is fetched only when
+  // a single state's detail view is opened.
+  const distOut = { fips, stateCode: st, seats, years: PRES_YEARS, baked: {} };
+  for (const bs of BAKE_SEEDS) {
+    if (!baked[bs]) continue;
+    const asn = [...Buffer.from(baked[bs].a, 'base64')].map((b) => (b === 255 ? -1 : b));
+    const feats = [];
+    const dv = {}; // district → year → [d, r]
+    for (let i = 0; i < precincts.length; i++) {
+      const d = asn[i]; if (d < 0) continue;
+      feats.push({ type: 'Feature', properties: { d },
+        geometry: { type: 'MultiPolygon', coordinates: precincts[i].polys } });
+      const pv = precincts[i].v || {};
+      (dv[d] ||= {});
+      for (const y of PRES_YEARS) {
+        const e = pv[y]; if (!e) continue;
+        (dv[d][y] ||= [0, 0]); dv[d][y][0] += e[0]; dv[d][y][1] += e[1];
+      }
+    }
+    let dgeo = {};
+    try {
+      const dres = await mapshaper.applyCommands(
+        '-i d.json -dissolve2 d -o o.json format=geojson',
+        { 'd.json': JSON.stringify({ type: 'FeatureCollection', features: feats }) });
+      const fc = JSON.parse(dres['o.json'] || dres[Object.keys(dres)[0]]);
+      for (const f of fc.features || []) {
+        const g = f.geometry; if (!g) continue;
+        dgeo[f.properties.d] = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
+      }
+    } catch (e) { console.log(`    dissolve seed ${bs}: ${e.message}`); }
+    const dists = [];
+    for (let d = 0; d < seats; d++) {
+      dists.push({ polys: dgeo[d] || [], v: dv[d] || {} });
+    }
+    distOut.baked[bs] = { maxDev: baked[bs].maxDev, dists };
+  }
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(`${OUT}/${fips}-districts.json`, JSON.stringify(distOut));
 
   const out = {
     stateCode: st, fips, years: PRES_YEARS, seats,
@@ -283,7 +374,7 @@ function buildState(st) {
 const states = process.argv.slice(2).length ? process.argv.slice(2) : DEFAULT_STATES;
 console.log(`Building precinct substrate for: ${states.join(' ')}`);
 for (const st of states) {
-  try { buildState(st); }
+  try { await buildState(st); }
   catch (e) { console.log(`  ${st}: FAILED ${e.message}`); }
 }
 if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true });

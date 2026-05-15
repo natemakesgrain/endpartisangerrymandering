@@ -1042,10 +1042,15 @@ const PRECINCTS_BASE_URL =
   (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_PRECINCTS_BASE_URL) ||
   '/data/precincts/';
 const PRECINCT_YEARS = [2008, 2012, 2016, 2020];
-// 2-letter codes whose precinct file has been generated (battlegrounds +
-// the three largest states). Others fall back to the model substrate.
-const PRECINCT_STATES = new Set(
-  ['MI', 'WI', 'PA', 'GA', 'AZ', 'NV', 'NC', 'NH', 'MN', 'VA', 'OH', 'FL', 'TX', 'CA']);
+// 2-letter codes whose precinct file has been generated. All 50 states are
+// built (scripts/build-precincts.mjs); single-seat states still get real
+// precinct geometry + returns even though their one district is trivial.
+const PRECINCT_STATES = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+  'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+  'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+  'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']);
 const CACHED_PRECINCTS = new Map();           // stateCode → built precinct data
 const CACHED_PRECINCT_PARTITIONS = new Map(); // stateCode+'-'+seed+'-'+k → partition
 
@@ -1653,9 +1658,11 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
         // Precinct graphs are ~2-9× denser than tracts; scale burn-in with
         // size but cap so even CA (~25k precincts) stays interactive.
         const burnIn = Math.max(400, Math.min(2200, Math.round(N * 0.12)));
+        // Strict compactness so live (custom-seed) precinct districts read
+        // as compact blocks, matching the pre-baked default seeds.
         const result = runReCom(
           precinctData.units, precinctData.adjacency, seats, seed,
-          { burnIn, tolerance: 0.02 }
+          { burnIn, tolerance: 0.02, compactness: 0.9 }
         );
         if (cancelled) return;
         if (!result) throw new Error('ReCom failed to produce a partition');
@@ -3188,14 +3195,13 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
           <p style={S.sectionLede} className="r-sectionlede">
             {precinctMode ? (
               <>
-                <strong>Precinct view.</strong> For the{' '}
-                {[...PRECINCT_STATES].join(', ')} battleground/large states, districts are drawn
-                from <strong>real precinct (2020 VTD) returns</strong> — actual counted votes, no
-                county-level modeling — for the {PRECINCT_YEARS.join(', ')} presidential cycles
-                (ReCom pre-run offline with the published seed, so the map is exact and instant).
-                The remaining states keep the model substrate so the national map stays whole.{' '}
-                <strong>Click any state</strong> for its detail; switch to the{' '}
-                <strong>Model</strong> view for all cycles 2000–2024 nationwide.
+                <strong>Precinct view — all 50 states.</strong> Every district is drawn from{' '}
+                <strong>real precinct (2020 VTD) returns</strong> — actual counted votes, no
+                county-level modeling — for the {PRECINCT_YEARS.join(', ')} presidential cycles.
+                ReCom is pre-run offline with the published seed, so the national map is exact
+                and renders instantly. <strong>Click any state</strong> to enlarge it and see
+                per-district statistics; switch to the <strong>Model</strong> view for all
+                cycles 2000–2024.
               </>
             ) : districtingDone ? (
               <>
@@ -3344,8 +3350,17 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   //    disconnected) get suppressed to avoid scattered black dots.
   const districtPaths = useMemo(() => {
     if (!partition) return [];
-    const minLoopArea = useTracts ? 4 : 0;
-    const slabCutEdges = useTracts ? null : findSlabCutEdges(stateUnits);
+    // Precinct geometry tessellates imperfectly (snap/simplify leaves
+    // sub-precinct slivers); without a floor every sliver traces as a
+    // micro-loop → speckle. Scale the floor to the state so it kills
+    // slivers but never a real district body. Slab-cut detection is a
+    // county-fragment concept — meaningless for precincts (and O(n) over
+    // ~thousands of units), so it's disabled here just like tract mode.
+    const [sbx0, sby0, sbx1, sby1] = sg.bbox;
+    const minLoopArea = usePrecinct
+      ? Math.max(8, ((sbx1 - sbx0) * (sby1 - sby0)) / 1400)
+      : useTracts ? 4 : 0;
+    const slabCutEdges = (useTracts || usePrecinct) ? null : findSlabCutEdges(stateUnits);
     const out = [];
     for (let d = 0; d < k; d++) {
       const polys = [];
@@ -3658,13 +3673,29 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 strokeLinecap="round"
               />
             ) : null)}
+            {/* Precinct mode: the district boundary must read clearly over
+                a busy precinct mosaic, so give it the same bold treatment
+                as the state border — a wide white casing under a solid dark
+                line. (Tract/county mode keeps the single thin line.) */}
+            {usePrecinct && districtPaths.map((dp) => dp.pathD ? (
+              <path
+                key={`${dp.d}-case`}
+                d={dp.pathD}
+                fill="none"
+                stroke="#fdfaf2"
+                strokeWidth={Math.max(1.5, (x1 - x0) / 150)}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                opacity={0.9}
+              />
+            ) : null)}
             {districtPaths.map((dp) => dp.pathD ? (
               <path
                 key={dp.d}
                 d={dp.pathD}
                 fill="none"
                 stroke="#1a1a14"
-                strokeWidth={usePrecinct ? Math.max(0.9, (x1 - x0) / 200) : Math.max(0.4, (x1 - x0) / 400)}
+                strokeWidth={usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.4, (x1 - x0) / 400)}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
@@ -3912,15 +3943,49 @@ function Footer() {
 }
 
 /* ---------- NATIONAL PRECINCT DISTRICTING ------------------------------ */
-// Builds the national precinct-substrate districting for the covered
-// states by loading their /data/precincts/<fips>.json files and decoding
-// the PRE-BAKED partition for `baseSeed` (42/7/1337). No in-browser ReCom —
-// the assignments were computed offline by scripts/build-precincts with
-// the identical algorithm, so the national precinct map appears as fast as
-// the files load. States without a precinct file keep the model substrate
-// (the root merges these partitions over the model result). Streams so the
-// map paints state-by-state.
-const CACHED_PRECINCT_NATIONAL = new Map(); // `${baseSeed}` → { CODE: record }
+// The national precinct map renders ~435 district polygons, NOT ~180k
+// individual precincts (that scaling wall is why the model pre-renders to
+// an image). scripts/build-precincts dissolves each state's precincts into
+// its baked-seed district polygons offline and ships a tiny
+// /data/precincts/<fips>-districts.json (≈k polygons + per-cycle D/R).
+// This hook loads those (small, parallel) and builds one synthetic
+// "unit per district" record per state — so the existing renderer draws
+// real precinct-derived districts nationwide, fast. The per-state DETAIL
+// view still fetches the full precinct file for true precinct granularity.
+const CACHED_PRECINCT_NATIONAL = new Map();      // `${baseSeed}` → { CODE: record }
+const CACHED_PRECINCT_DISTRICTS = new Map();     // fips → districts json
+
+function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom) {
+  const b = dj && dj.baked && (dj.baked[baseSeed] || dj.baked[String(baseSeed)]);
+  if (!b || !b.dists) return null;
+  const units = b.dists.map((d, i) => {
+    const polys = d.polys && d.polys.length ? d.polys : [];
+    const votes = {};
+    for (const yr of YEAR_CONFIG.allYears) {
+      const e = d.v && d.v[yr];
+      votes[yr] = e ? { d: e[0], r: e[1], t: e[0] + e[1] } : { d: 0, r: 0, t: 0 };
+    }
+    return {
+      id: `${code}-${i}`, fips: dj.fips, stateCode: code, pop: 0,
+      polygons: polys, votes, parentDShare: {},
+      centroid: polys.length ? multiPolygonCentroid(polys) : [0, 0],
+      bbox: polys.length ? bboxOfPolygons(polys) : [0, 0, 0, 0],
+      pathD: polys.length ? pathFromPolygons(polys) : '',
+    };
+  });
+  const k = units.length;
+  const assignment = new Int16Array(k);
+  for (let i = 0; i < k; i++) assignment[i] = i;     // unit i == district i
+  return {
+    partition: { assignment, districtPop: new Array(k).fill(0) },
+    units, renderUnits: units,
+    name: (stateGeom[code] || {}).name || code,
+    seats: dj.seats || k,
+    maxDev: b.maxDev ?? 0,
+    substrate: 'precinct',
+  };
+}
+
 function usePrecinctNational(data, baseSeed, active) {
   const [partitions, setPartitions] = useState(() =>
     active ? CACHED_PRECINCT_NATIONAL.get(String(baseSeed)) || {} : {});
@@ -3936,43 +4001,32 @@ function usePrecinctNational(data, baseSeed, active) {
     const codes = [...PRECINCT_STATES];
     setProgress({ done: 0, total: codes.length, code: null });
     (async () => {
-      // Parallel fetch (the slow part is the network); build + decode
-      // serially on the main thread, yielding so the map paints.
+      // Tiny district files — fetch all in parallel, then assemble.
       const fetched = await Promise.all(codes.map(async (code) => {
-        if (CACHED_PRECINCTS.has(code)) return [code, null];
+        if (CACHED_PRECINCT_DISTRICTS.has(code)) return [code, CACHED_PRECINCT_DISTRICTS.get(code)];
         try {
-          const r = await fetch(PRECINCTS_BASE_URL + FIPS_BY_STATE_CODE[code] + '.json');
+          const r = await fetch(PRECINCTS_BASE_URL + FIPS_BY_STATE_CODE[code] + '-districts.json');
           if (!r.ok) return [code, undefined];
-          return [code, await r.json()];
+          const j = await r.json();
+          CACHED_PRECINCT_DISTRICTS.set(code, j);
+          return [code, j];
         } catch { return [code, undefined]; }
       }));
       if (cancelled) return;
       const acc = {};
       let done = 0;
-      for (const [code, pj] of fetched) {
+      for (const [code, dj] of fetched) {
         if (cancelled) return;
-        let built = CACHED_PRECINCTS.get(code);
-        if (!built && pj) { built = buildPrecinctUnits(pj, code); CACHED_PRECINCTS.set(code, built); }
-        if (built) {
-          const part = bakedPrecinctPartition(built, baseSeed);
-          if (part) {
-            acc[code] = {
-              partition: part,
-              units: built.units,
-              renderUnits: built.units,
-              name: (data.stateGeom[code] || {}).name || code,
-              seats: built.seats || part.districtPop.length,
-              maxDev: part._maxDev ?? 0,
-              substrate: 'precinct',
-            };
-          }
+        if (dj) {
+          const rec = buildPrecinctDistrictRecord(dj, code, baseSeed, data.stateGeom);
+          if (rec) acc[code] = rec;
         }
         done++;
-        if (!cancelled) {
-          setProgress({ done, total: codes.length, code: code + '▪' });
+        if (!cancelled && (done % 6 === 0 || done === codes.length)) {
+          setProgress(done === codes.length ? null : { done, total: codes.length, code: code + '▪' });
           setPartitions({ ...acc });
         }
-        await new Promise((r) => setTimeout(r, 0));
+        if (done % 6 === 0) await new Promise((r) => setTimeout(r, 0));
       }
       if (cancelled) return;
       CACHED_PRECINCT_NATIONAL.set(ck, acc);
@@ -4563,34 +4617,30 @@ export default function USRedistrictingDashboard() {
     !engaged && DEFAULT_SEEDS.has(seed) && year === YEAR_CONFIG.defaultYear;
 
   const summary = usePrerendered(seed, prerenderMode);
+  // Precinct mode is self-sufficient (all 50 states have pre-baked precinct
+  // partitions), so the model engine — and its ~28 s tract pipeline +
+  // ~29 MB download — is switched OFF entirely while precinct is active.
   const { districting, districtingProgress } = useDistricting(
-    data, seed, 0.05, !prerenderMode
+    data, seed, 0.05, !prerenderMode && substrate !== 'precinct'
   );
-  // National precinct substrate (covered states, pre-baked → instant).
+  // National precinct substrate — all 50 states, pre-baked → instant.
   const { precinctPartitions, precinctProgress } =
     usePrecinctNational(data, seed, substrate === 'precinct');
 
   // Children get a synthetic districting object depending on mode:
-  //  • prerender  → the committed image/summary path
-  //  • precinct   → real precinct partitions for covered states, merged
-  //                 OVER the model result so non-covered states still draw
-  //                 (model where we have no precinct file)
-  //  • model      → the model districting verbatim
+  //  • prerender → the committed image/summary path
+  //  • precinct  → real precinct partitions, all 50 states (no model)
+  //  • model     → the model districting verbatim
   let effDistricting;
   if (prerenderMode) {
     effDistricting = { prerendered: true, seed, summary, partitions: {} };
   } else if (substrate === 'precinct') {
-    effDistricting = {
-      seed, tolerance: 0.05,
-      partitions: { ...((districting && districting.partitions) || {}), ...precinctPartitions },
-    };
+    effDistricting = { seed, tolerance: 0.05, partitions: precinctPartitions };
   } else {
     effDistricting = districting;
   }
   // Surface precinct loading in the headline progress while it streams.
-  const effProgress = substrate === 'precinct'
-    ? (precinctProgress || districtingProgress)
-    : districtingProgress;
+  const effProgress = substrate === 'precinct' ? precinctProgress : districtingProgress;
 
   const handleSetYear = (y) => {
     if (y !== YEAR_CONFIG.defaultYear) setEngaged(true);
