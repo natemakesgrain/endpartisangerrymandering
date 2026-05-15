@@ -1552,7 +1552,30 @@ function buildPrecinctUnits(pj, stateCode) {
     for (const j of nbrs) if (j !== i && j >= 0 && j < units.length) s.add(j);
     return [...s];
   });
-  return { units, adjacency, idIdx };
+  // Pre-baked ReCom assignments (built offline by scripts/build-precincts
+  // with the exact app algorithm) — keyed by base seed. Decoded lazily into
+  // a partition so the national / default-seed views need NO in-browser
+  // ReCom. Falls back to live ReCom for un-baked (custom) seeds.
+  const baked = pj.baked || null;
+  return { units, adjacency, idIdx, baked, seats: pj.seats };
+}
+
+// Decode a pre-baked partition for `baseSeed` (42/7/1337) into the
+// {assignment, districtPop} shape — instant, no ReCom. Returns null if the
+// seed wasn't baked (→ caller runs live ReCom).
+function bakedPrecinctPartition(pd, baseSeed) {
+  const b = pd && pd.baked && (pd.baked[baseSeed] || pd.baked[String(baseSeed)]);
+  if (!b || !b.a) return null;
+  const n = pd.units.length;
+  const assignment = b64ToAssignment(b.a, n);
+  let k = 0;
+  for (let i = 0; i < n; i++) if (assignment[i] + 1 > k) k = assignment[i] + 1;
+  const districtPop = new Array(Math.max(1, k)).fill(0);
+  for (let i = 0; i < n; i++) {
+    const d = assignment[i];
+    if (d >= 0) districtPop[d] += pd.units[i].pop;
+  }
+  return { assignment, districtPop, _baked: true, _maxDev: b.maxDev };
 }
 
 function useStatePrecinctData(stateCode, active) {
@@ -1609,6 +1632,11 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
     if (dataStage === 'building') { setStage('building'); return; }
     if (dataStage === 'error') { setStage('error'); setError(dataError); return; }
     if (dataStage !== 'ready' || !precinctData) return;
+
+    // Fast path: this seed was pre-baked offline → use it verbatim, no
+    // ReCom. (Same algorithm/seed, so identical to a live run.)
+    const pre = bakedPrecinctPartition(precinctData, baseSeed);
+    if (pre) { setPartition(pre); setStage('ready'); return; }
 
     const seed = baseSeed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1);
     const cacheKey = `${stateCode}-${seed}-${seats}`;
@@ -2842,7 +2870,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
     const upgradedByState = new Map();
     if (districting) {
       for (const [code, p] of Object.entries(districting.partitions)) {
-        if (p.substrate === 'tract' && p.renderUnits) upgradedByState.set(code, p.renderUnits);
+        if ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) upgradedByState.set(code, p.renderUnits);
       }
     }
     // Track which unit ids are rendered as tract so we can skip them when
@@ -2889,9 +2917,9 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
       if (!partition) continue;
       // Use tract units for upgraded states (no slab artifacts to hide);
       // county fragments for the rest (slab-cuts get a soft dashed stroke).
-      const units = (p.substrate === 'tract' && p.renderUnits) ? p.renderUnits : p.units;
+      const units = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) ? p.renderUnits : p.units;
       const k = partition.districtPop.length;
-      const slabCutEdges = (p.substrate === 'tract') ? null : findSlabCutEdges(units);
+      const slabCutEdges = (p.substrate === 'tract' || p.substrate === 'precinct') ? null : findSlabCutEdges(units);
       for (let d = 0; d < k; d++) {
         const polys = [];
         for (let i = 0; i < units.length; i++) {
@@ -3018,7 +3046,7 @@ function StateHoverInfo({ state, units, year, districting }) {
   if (districting && districting.partitions[state.code]) {
     const p = districting.partitions[state.code];
     const partition = p.partition;
-    const partitionUnits = (p.substrate === 'tract' && p.renderUnits) ? p.renderUnits : units;
+    const partitionUnits = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) ? p.renderUnits : units;
     const results = computeDistrictResults(partitionUnits, partition, year);
     const totalPop = partitionUnits.reduce((s, u) => s + u.pop, 0);
     const target = totalPop / state.seats;
@@ -3160,13 +3188,14 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
           <p style={S.sectionLede} className="r-sectionlede">
             {precinctMode ? (
               <>
-                <strong>Precinct view.</strong> Districts are drawn from <strong>real precinct (2020 VTD)
-                returns</strong> — actual counted votes, no county-level modeling — for the{' '}
-                {PRECINCT_YEARS.join(', ')} presidential cycles. The national overview still shows the
-                model districting; <strong>click a highlighted battleground state</strong>{' '}
-                ({[...PRECINCT_STATES].join(', ')}) to see its districts redrawn on real precinct data —
-                as close to a real-world redistricting as this tool gets. Switch back to the{' '}
-                <strong>Model</strong> view for all cycles 2000–2024.
+                <strong>Precinct view.</strong> For the{' '}
+                {[...PRECINCT_STATES].join(', ')} battleground/large states, districts are drawn
+                from <strong>real precinct (2020 VTD) returns</strong> — actual counted votes, no
+                county-level modeling — for the {PRECINCT_YEARS.join(', ')} presidential cycles
+                (ReCom pre-run offline with the published seed, so the map is exact and instant).
+                The remaining states keep the model substrate so the national map stays whole.{' '}
+                <strong>Click any state</strong> for its detail; switch to the{' '}
+                <strong>Model</strong> view for all cycles 2000–2024 nationwide.
               </>
             ) : districtingDone ? (
               <>
@@ -3882,6 +3911,80 @@ function Footer() {
   );
 }
 
+/* ---------- NATIONAL PRECINCT DISTRICTING ------------------------------ */
+// Builds the national precinct-substrate districting for the covered
+// states by loading their /data/precincts/<fips>.json files and decoding
+// the PRE-BAKED partition for `baseSeed` (42/7/1337). No in-browser ReCom —
+// the assignments were computed offline by scripts/build-precincts with
+// the identical algorithm, so the national precinct map appears as fast as
+// the files load. States without a precinct file keep the model substrate
+// (the root merges these partitions over the model result). Streams so the
+// map paints state-by-state.
+const CACHED_PRECINCT_NATIONAL = new Map(); // `${baseSeed}` → { CODE: record }
+function usePrecinctNational(data, baseSeed, active) {
+  const [partitions, setPartitions] = useState(() =>
+    active ? CACHED_PRECINCT_NATIONAL.get(String(baseSeed)) || {} : {});
+  const [progress, setProgress] = useState(null);
+
+  useEffect(() => {
+    if (!active || !data) { setPartitions({}); setProgress(null); return; }
+    const ck = String(baseSeed);
+    if (CACHED_PRECINCT_NATIONAL.has(ck)) {
+      setPartitions(CACHED_PRECINCT_NATIONAL.get(ck)); setProgress(null); return;
+    }
+    let cancelled = false;
+    const codes = [...PRECINCT_STATES];
+    setProgress({ done: 0, total: codes.length, code: null });
+    (async () => {
+      // Parallel fetch (the slow part is the network); build + decode
+      // serially on the main thread, yielding so the map paints.
+      const fetched = await Promise.all(codes.map(async (code) => {
+        if (CACHED_PRECINCTS.has(code)) return [code, null];
+        try {
+          const r = await fetch(PRECINCTS_BASE_URL + FIPS_BY_STATE_CODE[code] + '.json');
+          if (!r.ok) return [code, undefined];
+          return [code, await r.json()];
+        } catch { return [code, undefined]; }
+      }));
+      if (cancelled) return;
+      const acc = {};
+      let done = 0;
+      for (const [code, pj] of fetched) {
+        if (cancelled) return;
+        let built = CACHED_PRECINCTS.get(code);
+        if (!built && pj) { built = buildPrecinctUnits(pj, code); CACHED_PRECINCTS.set(code, built); }
+        if (built) {
+          const part = bakedPrecinctPartition(built, baseSeed);
+          if (part) {
+            acc[code] = {
+              partition: part,
+              units: built.units,
+              renderUnits: built.units,
+              name: (data.stateGeom[code] || {}).name || code,
+              seats: built.seats || part.districtPop.length,
+              maxDev: part._maxDev ?? 0,
+              substrate: 'precinct',
+            };
+          }
+        }
+        done++;
+        if (!cancelled) {
+          setProgress({ done, total: codes.length, code: code + '▪' });
+          setPartitions({ ...acc });
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      if (cancelled) return;
+      CACHED_PRECINCT_NATIONAL.set(ck, acc);
+      setPartitions(acc);
+      setProgress(null);
+    })();
+    return () => { cancelled = true; };
+  }, [data, baseSeed, active]);
+
+  return { precinctPartitions: partitions, precinctProgress: progress };
+}
+
 /* ---------- DISTRICTING HOOK -------------------------------------------- */
 // Runs ReCom across all 50 states, streaming results as each completes so
 // the UI can render progressively. Caches per (seed, tolerance) so toggling
@@ -4426,7 +4529,7 @@ function aggregateNationalSeats(districting, year) {
     // For tract-upgraded states, partition.assignment is indexed over the
     // tract units (renderUnits), not the county fragments. Use whichever
     // unit array matches the partition's indexing.
-    const units = (p.substrate === 'tract' && p.renderUnits) ? p.renderUnits : p.units;
+    const units = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) ? p.renderUnits : p.units;
     const results = computeDistrictResults(units, p.partition, year);
     for (const r of results) {
       totalSeats++;
@@ -4463,14 +4566,31 @@ export default function USRedistrictingDashboard() {
   const { districting, districtingProgress } = useDistricting(
     data, seed, 0.05, !prerenderMode
   );
+  // National precinct substrate (covered states, pre-baked → instant).
+  const { precinctPartitions, precinctProgress } =
+    usePrecinctNational(data, seed, substrate === 'precinct');
 
-  // In prerender mode, hand the children a synthetic districting object so
-  // they branch onto the image/summary path. `partitions: {}` keeps
-  // StateDetailSection safe if a state is clicked (it self-computes that
-  // one state via useStateTractPartition — fast, no national run).
-  const effDistricting = prerenderMode
-    ? { prerendered: true, seed, summary, partitions: {} }
-    : districting;
+  // Children get a synthetic districting object depending on mode:
+  //  • prerender  → the committed image/summary path
+  //  • precinct   → real precinct partitions for covered states, merged
+  //                 OVER the model result so non-covered states still draw
+  //                 (model where we have no precinct file)
+  //  • model      → the model districting verbatim
+  let effDistricting;
+  if (prerenderMode) {
+    effDistricting = { prerendered: true, seed, summary, partitions: {} };
+  } else if (substrate === 'precinct') {
+    effDistricting = {
+      seed, tolerance: 0.05,
+      partitions: { ...((districting && districting.partitions) || {}), ...precinctPartitions },
+    };
+  } else {
+    effDistricting = districting;
+  }
+  // Surface precinct loading in the headline progress while it streams.
+  const effProgress = substrate === 'precinct'
+    ? (precinctProgress || districtingProgress)
+    : districtingProgress;
 
   const handleSetYear = (y) => {
     if (y !== YEAR_CONFIG.defaultYear) setEngaged(true);
@@ -4501,9 +4621,9 @@ export default function USRedistrictingDashboard() {
       <style>{globalCSS}</style>
       <Header />
       <section style={S.headlineSection}>
-        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={handleSetSubstrate} />
+        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={handleSetSubstrate} />
       </section>
-      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} substrate={substrate} />
+      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} substrate={substrate} />
       <Footer />
     </div>
   );

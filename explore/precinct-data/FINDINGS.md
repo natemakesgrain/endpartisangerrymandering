@@ -236,3 +236,42 @@ the existing state outlines exactly.
   topojson-arc encoding would shrink it if this ever graduated off-branch.
 - Data © Dave's Redistricting (`dra2020/vtd_data`, public domain) +
   upstream VEST/Census; attribution due if shipped.
+
+---
+
+## 9. Phase 3 — the national precinct view, made real (pre-bake)
+
+Phase 2's honest gap ("national overview still shows the model") is now
+closed using the project's own instant-render philosophy.
+
+- **`scripts/lib/recom.mjs`** — the ReCom block (makeRng,
+  uniformSpanningTree, recomStep, recomInitialPartition, runReCom) was
+  auto-extracted **verbatim** from `Dashboard.jsx` (lines 1698–2464; only
+  `export` added) via `scripts/_extract_recom.mjs`. Zero algorithm drift —
+  verified: MI seed-42 bakes to 1.9 % maxDev, identical to the app's live
+  result.
+- **`build-precincts.mjs` pre-bakes** seeds 42 / 7 / 1337 per state with
+  the EXACT app seed derivation + burn-in + tolerance, stored base64
+  (1 byte/precinct, the same encoding the model seed cache uses). All 14
+  states baked, every seed ≤ 2.0 % max deviation. Worst build cost: CA
+  (25,569 precincts × 52 seats) seed 1337 = 145 s — paid offline, once.
+- **App**: `bakedPrecinctPartition()` decodes a baked seed instantly;
+  `useStatePrecinctPartition` fast-paths it (no in-browser ReCom);
+  `usePrecinctNational()` loads the 14 files, decodes baked partitions,
+  and the root **merges them over the model result** so the national map
+  is precinct-real where we have it and model everywhere else (always a
+  whole 435-seat map). The five render sites that special-cased `'tract'`
+  now also accept `'precinct'`.
+
+Verified end-to-end in-browser: toggle → 14 precinct files fetched →
+national map renders **90 k paths**, the 14 states as fine real-precinct
+mosaics, headline fills to **D 234 · R 201, 115 competitive, ±2.0 %
+(worst OH), 44/44 states ≤ ±5 %** (233 precinct seats + 202 model seats =
+435); clicking any covered state opens its real-precinct detail
+**instantly** (cached + baked, no recompute); Model⇄Precinct both clean;
+no console errors. ~27 MB precinct payload (CA 6.6 MB), on-demand when the
+toggle is first used — same order as the model's tract load.
+
+Net: the "Precinct" view is now a true national alternative to the model
+view, not just a per-state drill-down. Still branch-only — not merged,
+not pushed.

@@ -25,6 +25,24 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { geoAlbersUsa } from 'd3-geo';
+import { runReCom } from './lib/recom.mjs';
+
+// 2020-apportionment House seats (copied from Dashboard.jsx SEATS_BY_STATE
+// — must match so the baked partition equals what the app would compute).
+const SEATS = {
+  AL: 7, AK: 1, AZ: 9, AR: 4, CA: 52, CO: 8, CT: 5, DE: 1, FL: 28,
+  GA: 14, HI: 2, ID: 2, IL: 17, IN: 9, IA: 4, KS: 4, KY: 6, LA: 6,
+  ME: 2, MD: 8, MA: 9, MI: 13, MN: 8, MS: 4, MO: 8, MT: 2, NE: 3,
+  NV: 4, NH: 2, NJ: 12, NM: 3, NY: 26, NC: 14, ND: 1, OH: 15, OK: 5,
+  OR: 6, PA: 17, RI: 2, SC: 7, SD: 1, TN: 9, TX: 38, UT: 4, VT: 1,
+  VA: 11, WA: 10, WV: 2, WI: 8, WY: 1,
+};
+// Seeds to pre-bake. The app derives a per-state seed exactly this way in
+// useStatePrecinctPartition; baking the same derivation lets the national
+// precinct view render baked districts with NO in-browser ReCom.
+const BAKE_SEEDS = [42, 7, 1337];
+const stateSeed = (baseSeed, st) =>
+  baseSeed * 1000 + st.charCodeAt(0) * 17 + st.charCodeAt(1);
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const OUT = ROOT + 'public/data/precincts';
@@ -205,12 +223,52 @@ function buildState(st) {
     if (bO !== -1) { adjacency[bO].add(bM); adjacency[bM].add(bO); cs[0].push(...cs[ci]); }
   }
 
+  const adjArr = adjacency.map((s) => [...s]);
+
+  // ---- Pre-bake ReCom district assignments -----------------------------
+  // Run the EXACT app algorithm offline so the national precinct view (and
+  // default-seed state detail) render baked districts with zero in-browser
+  // ReCom. Seed derivation + burnIn + tolerance mirror the app's
+  // useStatePrecinctPartition precisely. Encoded base64 (1 byte/precinct,
+  // 255 = unassigned) — the same format the app's b64ToAssignment reads.
+  const seats = SEATS[st] || 1;
+  const miniUnits = precincts.map((p) => ({ pop: p.pop }));
+  const baked = {};
+  if (seats > 1) {
+    const N = precincts.length;
+    const burnIn = Math.max(400, Math.min(2200, Math.round(N * 0.12)));
+    const tgt = precincts.reduce((s, p) => s + p.pop, 0) / seats;
+    for (const bs of BAKE_SEEDS) {
+      const t0 = Date.now();
+      const r = runReCom(miniUnits, adjArr, seats, stateSeed(bs, st),
+        { burnIn, tolerance: 0.02 });
+      if (!r) { console.log(`    bake seed ${bs}: FAILED`); continue; }
+      let mx = 0;
+      for (const dp of r.districtPop) {
+        const dv = Math.abs(dp - tgt) / tgt; if (dv > mx) mx = dv;
+      }
+      const bytes = Buffer.alloc(N);
+      for (let i = 0; i < N; i++) {
+        const d = r.assignment[i];
+        bytes[i] = d < 0 || d > 254 ? 255 : d;
+      }
+      baked[bs] = { a: bytes.toString('base64'), maxDev: +mx.toFixed(4) };
+      console.log(`    bake seed ${bs}: maxDev ${(mx * 100).toFixed(1)}% ` +
+        `(${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+    }
+  } else {
+    // Single-district state: trivial assignment.
+    const bytes = Buffer.alloc(precincts.length, 0);
+    for (const bs of BAKE_SEEDS) baked[bs] = { a: bytes.toString('base64'), maxDev: 0 };
+  }
+
   const out = {
-    stateCode: st, fips, years: PRES_YEARS,
+    stateCode: st, fips, years: PRES_YEARS, seats,
     bbox: [minX, minY, maxX, maxY].map((x) => +x.toFixed(2)),
     n: precincts.length,
     precincts: precincts.map((p) => ({ id: p.id, pop: p.pop, v: p.v, polys: p.polys })),
-    adjacency: adjacency.map((s) => [...s]),
+    adjacency: adjArr,
+    baked,
   };
   mkdirSync(OUT, { recursive: true });
   const path = `${OUT}/${fips}.json`;
