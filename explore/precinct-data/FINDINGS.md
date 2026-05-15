@@ -1,5 +1,13 @@
 # Precinct data exploration
 
+> **Phase 2 update — a working alternative "Precinct" dashboard view was
+> built on this branch.** See [§8 Phase 2](#8-phase-2--the-precinct-view-built).
+> A better data source than Phase 1's was found: **Dave's Redistricting
+> `dra2020/vtd_data`** — 4 presidential cycles (2008/2012/2016/2020) on
+> *consistent* 2020 VTD boundaries, all 50 states, self-contained GeoJSON
+> with real returns + 2020 census pop + adjacency, public domain. Still
+> branch-only, not pushed, not merged.
+
 **Status:** exploration only — lives on branch `explore/precinct-data`, not
 merged, not deployed. Question asked: *can precinct data make the modeling
 more accurate, either by improving the census-tract partisanship model or by
@@ -142,3 +150,89 @@ cd .. && node analyze.mjs && node precinct_substrate_poc.mjs
 
 Data © their providers (MGGG / VEST); used here for non-commercial research,
 attribution due if any of this ships.
+
+---
+
+## 8. Phase 2 — the precinct view, built
+
+Acting on the user's request ("build an alternative dashboard view that
+uses full precinct level data … choose between county/tract or precinct …
+as close to a real-world redistricted map as possible"). Branch-only.
+
+### 8.1 Better data source (deeper dig)
+
+Phase 1 used MGGG `mggg-states` (one cycle per state, shapefiles). The
+deeper dig found a materially better source:
+
+**`github.com/dra2020/vtd_data`** (Dave's Redistricting). Per state, ONE
+self-contained GeoJSON whose features carry geometry + real returns
+(`datasets.E_{08,12,16,20}_PRES.{Dem,Rep}`) + 2020 census population
+(`datasets.T_20_CENS.Total`) + a rook adjacency graph — all on **consistent
+2020 VTD boundaries**, all 50 states, **public domain**.
+
+- Coverage: **PRES 2008 / 2012 / 2016 / 2020 universal** across the states
+  checked (MI, PA, GA, TX, CA, FL, WI, NC, …); 2024 where DRA has loaded it.
+  Downballot (SEN/GOV/AG) present for many states/cycles too.
+- Solves Phase 1's killer caveat — consistent boundaries across cycles, so
+  one geometry serves four presidential maps per state.
+- Validation: pipeline-built 2020 two-party D-share matches reality within
+  ~0.5 pt everywhere (CA 64.9% = exact, GA 50.1%, AZ 50.2%, OH 45.9%,
+  PA 50.6%, MI 51.4%, …). Σ population = exact 2020 census.
+
+### 8.2 Projection
+
+App space is us-atlas `counties-albers-10m`. Verified empirically:
+`d3.geoAlbersUsa().scale(1300).translate([487.5,305])` reproduces the
+shipped MI tract topology bbox `[585.32, 83.2, 721.54, 227.55]` to within
+~2 units (diff = tract-vs-VTD simplification). Precinct geometry overlays
+the existing state outlines exactly.
+
+### 8.3 What was built (all on branch)
+
+- **`scripts/build-precincts.mjs`** — DRA GeoJSON → projected (app Albers),
+  Douglas–Peucker-simplified, `/public/data/precincts/<fips>.json`
+  (`{id, pop, v:{year:[d,r]}, polys}` + adjacency). Never drops a precinct
+  with votes (a tiny-urban-precinct drop bias was caught and fixed — it had
+  skewed CA 6 pts before the fix). `node scripts/build-precincts.mjs` (+ opt
+  state list). Needs `d3-geo` (added to devDeps).
+- **14 states built** (battlegrounds + 3 biggest): MI WI PA GA AZ NV NC NH
+  MN VA OH FL TX CA. ~27 MB total (CA 6.7 MB worst case; most 0.5–3 MB).
+  Any other state = run the script.
+- **`Dashboard.jsx`**: `buildPrecinctUnits` (precinct file → the SAME unit
+  contract as tracts, so every renderer works unchanged, but with REAL
+  votes); `useStatePrecinctData` / `useStatePrecinctPartition` (fetch+build
+  then ReCom, same stage protocol as the tract hooks); a **substrate
+  toggle** in the headline (Model ⇄ Precinct); precinct **year restriction**
+  (only 2008/12/16/20 selectable, others disabled & explained); a
+  precinct-mode banner; precinct-aware detail copy; bolder district strokes
+  + no precinct-mesh hairlines so the redistricting reads on the dense
+  mosaic; uncovered-state fallback notice.
+
+### 8.4 Verified end-to-end (browser)
+
+- Model instant-render path **unchanged** (still 0 ms, 0 tract reqs).
+- Toggle → banner + "PRECINCT CYCLES ONLY", year auto-snaps to 2020,
+  non-precinct cycles disabled.
+- Click Michigan → fetches **only** `26.json`, builds, ReCom on real
+  precincts → **13 districts · 4,763 voting precincts · real 2020 returns ·
+  max pop deviation 1.9% · D 6 · R 7** — the authentic real-data
+  redistricting. Panel reads "voting precincts (2020 VTDs) … No
+  county-level modeling".
+- Toggle back to Model → fully reverts. No console errors.
+
+### 8.5 Scope / honest limitations
+
+- **State-detail is the real artifact.** A live national 50-state precinct
+  ReCom (CA alone ≈ 25 k precincts) would hang the browser, so in precinct
+  mode the *national overview* still shows the model districting and the
+  real precinct redistricting is delivered per state on click. Making the
+  national precinct map instant is the documented next step — and the app
+  already has the exact pattern for it (the pre-rendered default-seed
+  images); the precinct national maps for default seeds would be baked the
+  same way.
+- Precinct mode = the 4 covered presidential cycles, the 14 built states
+  (others fall back to the model with a notice).
+- CA file is 6.7 MB (on-demand, one state). Heavier simplification or
+  topojson-arc encoding would shrink it if this ever graduated off-branch.
+- Data © Dave's Redistricting (`dra2020/vtd_data`, public domain) +
+  upstream VEST/Census; attribution due if shipped.

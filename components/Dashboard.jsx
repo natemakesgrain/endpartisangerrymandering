@@ -1030,6 +1030,25 @@ const TRACTS_BASE_URL =
   // rendering silently. To override, set NEXT_PUBLIC_TRACTS_BASE_URL at build.
   '/data/tracts/';
 
+// ---- Precinct substrate (alternative "Precinct" dashboard view) --------
+// Real precinct (2020 VTD) returns from Dave's Redistricting `vtd_data`,
+// built by scripts/build-precincts.mjs into /data/precincts/<fips>.json
+// (geometry already in app Albers space + REAL per-cycle D/R + 2020 pop +
+// rook adjacency). Unlike the model substrate (county totals disaggregated
+// to tracts by a density heuristic), nothing here is modeled — these are
+// the actual counted votes, so the only cycles available are the ones with
+// precinct returns, and only the states whose files have been built.
+const PRECINCTS_BASE_URL =
+  (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_PRECINCTS_BASE_URL) ||
+  '/data/precincts/';
+const PRECINCT_YEARS = [2008, 2012, 2016, 2020];
+// 2-letter codes whose precinct file has been generated (battlegrounds +
+// the three largest states). Others fall back to the model substrate.
+const PRECINCT_STATES = new Set(
+  ['MI', 'WI', 'PA', 'GA', 'AZ', 'NV', 'NC', 'NH', 'MN', 'VA', 'OH', 'FL', 'TX', 'CA']);
+const CACHED_PRECINCTS = new Map();           // stateCode → built precinct data
+const CACHED_PRECINCT_PARTITIONS = new Map(); // stateCode+'-'+seed+'-'+k → partition
+
 const FIPS_BY_STATE_CODE = (() => {
   const out = {};
   for (const [fips, [code]] of Object.entries(STATE_BY_FIPS)) out[code] = fips;
@@ -1489,6 +1508,141 @@ function useStateTractPartition(stateCode, data, seats, baseSeed) {
   }, [stateCode, data, dataStage, tractData, seats, baseSeed]);
 
   return { tractData, partition, stage, error };
+}
+
+/* ---------- PRECINCT SUBSTRATE ----------------------------------------- */
+// Parse a /data/precincts/<fips>.json file into the SAME unit contract
+// buildTractUnits produces, so every downstream renderer/among (district
+// tracing, labels, computeDistrictResults, hover) works unchanged. The
+// only real difference: votes are the ACTUAL precinct returns, not a
+// county total disaggregated by a density model.
+function buildPrecinctUnits(pj, stateCode) {
+  const fips = pj.fips || FIPS_BY_STATE_CODE[stateCode];
+  const units = new Array(pj.precincts.length);
+  const idIdx = new Map();
+  for (let i = 0; i < pj.precincts.length; i++) {
+    const p = pj.precincts[i];
+    // p.polys: MultiPolygon-style [ [ ring=[[x,y]...], holes... ], ... ]
+    const polys = p.polys;
+    const votes = {};
+    for (const yr of YEAR_CONFIG.allYears) {
+      const v = p.v && p.v[yr];
+      votes[yr] = v ? { d: v[0], r: v[1], t: v[0] + v[1] } : { d: 0, r: 0, t: 0 };
+    }
+    const u = {
+      id: p.id,
+      fips: (p.id && p.id.length >= 5) ? p.id.slice(0, 5) : fips,
+      stateCode,
+      pop: p.pop || 0,
+      polygons: polys,
+      votes,
+      parentDShare: {},
+      centroid: multiPolygonCentroid(polys),
+      bbox: bboxOfPolygons(polys),
+      pathD: pathFromPolygons(polys),
+      _pi: i,
+    };
+    idIdx.set(p.id, i);
+    units[i] = u;
+  }
+  // Adjacency arrives pre-built (DRA rook graph, already connectivity-
+  // bridged by the pipeline). Defensively dedupe + drop self/out-of-range.
+  const adjacency = pj.adjacency.map((nbrs, i) => {
+    const s = new Set();
+    for (const j of nbrs) if (j !== i && j >= 0 && j < units.length) s.add(j);
+    return [...s];
+  });
+  return { units, adjacency, idIdx };
+}
+
+function useStatePrecinctData(stateCode, active) {
+  const on = active && stateCode && PRECINCT_STATES.has(stateCode);
+  const [data, setData] = useState(on ? CACHED_PRECINCTS.get(stateCode) || null : null);
+  const [stage, setStage] = useState('idle');
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!on) { setData(null); setStage(stateCode && active ? 'uncovered' : 'idle'); return; }
+    if (CACHED_PRECINCTS.has(stateCode)) {
+      setData(CACHED_PRECINCTS.get(stateCode)); setStage('ready'); return;
+    }
+    let cancelled = false;
+    setData(null); setStage('fetching'); setError(null);
+    const fips = FIPS_BY_STATE_CODE[stateCode];
+    (async () => {
+      try {
+        const resp = await fetch(PRECINCTS_BASE_URL + fips + '.json');
+        if (!resp.ok) throw new Error(`Fetch ${resp.status}`);
+        const pj = await resp.json();
+        if (cancelled) return;
+        setStage('building');
+        await new Promise((r) => setTimeout(r, 0));
+        const built = buildPrecinctUnits(pj, stateCode);
+        if (cancelled) return;
+        CACHED_PRECINCTS.set(stateCode, built);
+        setData(built);
+        setStage('ready');
+      } catch (e) {
+        if (cancelled) return;
+        setError(e.message); setStage('error');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stateCode, on]);
+
+  return { precinctData: data, stage, error };
+}
+
+// Chained: fetch+build precinct data, then ReCom on the precinct graph.
+// Same shape/stage protocol as useStateTractPartition.
+function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
+  const { precinctData, stage: dataStage, error: dataError } =
+    useStatePrecinctData(active ? stateCode : null, active);
+  const [partition, setPartition] = useState(null);
+  const [stage, setStage] = useState('idle');
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!active || !stateCode || !data) { setPartition(null); setStage('idle'); return; }
+    if (dataStage === 'uncovered') { setStage('uncovered'); return; }
+    if (dataStage === 'fetching') { setStage('fetching'); return; }
+    if (dataStage === 'building') { setStage('building'); return; }
+    if (dataStage === 'error') { setStage('error'); setError(dataError); return; }
+    if (dataStage !== 'ready' || !precinctData) return;
+
+    const seed = baseSeed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1);
+    const cacheKey = `${stateCode}-${seed}-${seats}`;
+    if (CACHED_PRECINCT_PARTITIONS.has(cacheKey)) {
+      setPartition(CACHED_PRECINCT_PARTITIONS.get(cacheKey)); setStage('ready'); return;
+    }
+    let cancelled = false;
+    setStage('recom'); setError(null);
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      try {
+        const t0 = Date.now();
+        const N = precinctData.units.length;
+        // Precinct graphs are ~2-9× denser than tracts; scale burn-in with
+        // size but cap so even CA (~25k precincts) stays interactive.
+        const burnIn = Math.max(400, Math.min(2200, Math.round(N * 0.12)));
+        const result = runReCom(
+          precinctData.units, precinctData.adjacency, seats, seed,
+          { burnIn, tolerance: 0.02 }
+        );
+        if (cancelled) return;
+        if (!result) throw new Error('ReCom failed to produce a partition');
+        const tagged = { ...result, _elapsedMs: Date.now() - t0 };
+        CACHED_PRECINCT_PARTITIONS.set(cacheKey, tagged);
+        setPartition(tagged); setStage('ready');
+      } catch (e) {
+        if (cancelled) return;
+        setError(e.message); setStage('error');
+      }
+    }, 30);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [stateCode, data, dataStage, precinctData, seats, baseSeed, active]);
+
+  return { precinctData, partition, stage, error };
 }
 
 /* ---------- COLOR HELPERS ----------------------------------------------- */
@@ -2384,7 +2538,7 @@ function runReComAllStates(data, baseSeed, options, onProgress) {
 // running "national 2-party" tally — this is essentially the popular vote,
 // which we present as the baseline against which "what would a neutral
 // House look like?" gets compared in subsequent iterations.
-function HeadlineRow({ data, year, loadStage, districting, districtingProgress, seed, setSeed }) {
+function HeadlineRow({ data, year, loadStage, districting, districtingProgress, seed, setSeed, substrate = 'model', setSubstrate }) {
   if (!data) {
     return (
       <div style={S.headline} className="r-headline">
@@ -2503,6 +2657,45 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         <div style={S.tickerSub}>{(totalPop / 1e6).toFixed(1)}M people · {(totalPop / TOTAL_SEATS / 1000).toFixed(0)}K target/district</div>
       </div>
       <div style={S.headlineNote}>
+        <div style={S.tickerKicker}>DATA SUBSTRATE</div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+          {[
+            ['model', 'Model', '2000–2024 · modeled'],
+            ['precinct', 'Precinct', "'08·'12·'16·'20 · real returns"],
+          ].map(([key, label, sub]) => {
+            const on = substrate === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setSubstrate && setSubstrate(key)}
+                title={key === 'precinct'
+                  ? 'Real precinct (2020 VTD) returns — exact, but only the covered cycles & states'
+                  : 'County totals disaggregated to tracts by a density model — all cycles 2000–2024'}
+                style={{
+                  padding: '6px 10px',
+                  fontFamily: '"JetBrains Mono", monospace',
+                  fontSize: 11,
+                  textAlign: 'left',
+                  background: on ? '#1a1a14' : 'transparent',
+                  color: on ? '#f5efe6' : '#1a1a14',
+                  border: '1px solid rgba(26,26,20,0.25)',
+                  cursor: 'pointer',
+                  lineHeight: 1.3,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{label}</div>
+                <div style={{ fontSize: 9, opacity: 0.75 }}>{sub}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ ...S.tickerSub, marginTop: 4, fontSize: 10, fontStyle: 'italic' }}>
+          {substrate === 'precinct'
+            ? 'real counted votes · click a battleground state'
+            : 'density-modeled within counties · every cycle'}
+        </div>
+      </div>
+      <div style={S.headlineNote}>
         <div style={S.tickerKicker}>RESEED</div>
         <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
@@ -2572,20 +2765,32 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
 }
 
 /* ---------- YEAR SELECTOR & LEGEND -------------------------------------- */
-function YearSelector({ year, setYear }) {
+function YearSelector({ year, setYear, allowedYears = null }) {
+  // In precinct mode only the cycles with real returns are selectable;
+  // the rest are shown disabled so the coverage gap is explicit.
   return (
     <div style={S.yearSelector}>
-      <div style={S.yearSelectorLabel}>ELECTION YEAR</div>
+      <div style={S.yearSelectorLabel}>
+        ELECTION YEAR{allowedYears ? ' · precinct cycles only' : ''}
+      </div>
       <div style={S.yearSelectorButtons} className="r-yearselector-buttons">
         {YEAR_CONFIG.years.map((y) => {
           const active = y.key === year;
+          const disabled = allowedYears ? !allowedYears.includes(y.key) : false;
           return (
             <button
               key={y.key}
-              onClick={() => setYear(y.key)}
-              style={{ ...S.yearBtn, ...(active ? S.yearBtnActive : null) }}
+              onClick={() => !disabled && setYear(y.key)}
+              disabled={disabled}
+              style={{
+                ...S.yearBtn,
+                ...(active ? S.yearBtnActive : null),
+                ...(disabled ? { opacity: 0.3, cursor: 'not-allowed' } : null),
+              }}
               aria-pressed={active}
-              title={y.label + ' — ' + y.sub}
+              title={disabled
+                ? `${y.label} — no precinct returns for this cycle`
+                : `${y.label} — ${y.sub}`}
             >
               <span style={S.yearBtnYear}>{y.label}</span>
               <span style={{ ...S.yearBtnSub, color: active ? '#f5efe6' : y.winner === 'D' ? '#2c5d8f' : '#b3433b' }}>
@@ -2914,10 +3119,12 @@ function PrerenderedMap({ data, seed, year, hoveredState, setHoveredState, onSel
 }
 
 /* ---------- MAP SECTION ------------------------------------------------- */
-function MapSection({ data, year, setYear, loadStage, districting, districtingProgress }) {
+function MapSection({ data, year, setYear, loadStage, districting, districtingProgress, substrate = 'model' }) {
   const [hoveredState, setHoveredState] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const districtingDone = !!districting;
+  const precinctMode = substrate === 'precinct';
+  const allowedYears = precinctMode ? PRECINCT_YEARS : null;
 
   // ESC key closes state detail
   useEffect(() => {
@@ -2937,6 +3144,7 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
         districting={districting}
         stateCode={selectedState}
         onClose={() => setSelectedState(null)}
+        substrate={substrate}
       />
     );
   }
@@ -2945,12 +3153,22 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
     <section style={S.mapSection} className="r-mapsection r-pad">
       <div style={S.mapHeader} className="r-mapheader">
         <div>
-          <div style={S.kicker}>{districtingDone ? 'THE ALGORITHMIC HOUSE' : 'THE COUNTY GROUND TRUTH'}</div>
+          <div style={S.kicker}>{precinctMode ? 'PRECINCT VIEW · REAL RETURNS' : districtingDone ? 'THE ALGORITHMIC HOUSE' : 'THE COUNTY GROUND TRUTH'}</div>
           <h2 style={S.sectionTitle}>
             {districtingDone ? `${year} congressional districts, drawn by algorithm.` : `${year} presidential vote, by county.`}
           </h2>
           <p style={S.sectionLede} className="r-sectionlede">
-            {districtingDone ? (
+            {precinctMode ? (
+              <>
+                <strong>Precinct view.</strong> Districts are drawn from <strong>real precinct (2020 VTD)
+                returns</strong> — actual counted votes, no county-level modeling — for the{' '}
+                {PRECINCT_YEARS.join(', ')} presidential cycles. The national overview still shows the
+                model districting; <strong>click a highlighted battleground state</strong>{' '}
+                ({[...PRECINCT_STATES].join(', ')}) to see its districts redrawn on real precinct data —
+                as close to a real-world redistricting as this tool gets. Switch back to the{' '}
+                <strong>Model</strong> view for all cycles 2000–2024.
+              </>
+            ) : districtingDone ? (
               <>
                 Counties are colored by their actual two-party D-share for {year}. <strong>Black outlines</strong>{' '}
                 trace the boundaries of {data ? '435' : 'algorithmically-drawn'} congressional districts produced by
@@ -2970,7 +3188,7 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
           </p>
         </div>
         <div style={S.mapHeaderControls}>
-          <YearSelector year={year} setYear={setYear} />
+          <YearSelector year={year} setYear={setYear} allowedYears={allowedYears} />
           <Legend />
         </div>
       </div>
@@ -3011,7 +3229,7 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
 // Zoomed-in map of one state, with a stats panel showing per-district info.
 // Uses tract-level data when available (much finer geometry, ±1% balance),
 // falling back to county-level while tract data fetches/builds.
-function StateDetailSection({ data, year, setYear, districting, stateCode, onClose }) {
+function StateDetailSection({ data, year, setYear, districting, stateCode, onClose, substrate = 'model' }) {
   const sg = data.stateGeom[stateCode];
   const countyUnits = data.unitsByState[stateCode] || [];
   const stateRecord = districting.partitions[stateCode];
@@ -3019,26 +3237,38 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   const seats = sg ? sg.seats : 0;
   const baseSeed = districting.seed;
 
+  // Precinct view: real precinct (2020 VTD) returns for this state, if a
+  // precinct file was built for it. Takes precedence over everything when
+  // active + ready. (Uncovered states show a notice and fall back below.)
+  const precinctCovered = substrate === 'precinct' && PRECINCT_STATES.has(stateCode);
+  const { precinctData, partition: precPartition, stage: precStage, error: precError } =
+    useStatePrecinctPartition(stateCode, data, seats, baseSeed, precinctCovered);
+  const precinctReady = precinctCovered && precStage === 'ready' && precPartition && precinctData;
+
   // If the national pass already upgraded this state to tract substrate,
   // reuse its partition + units verbatim. This eliminates the double-run
   // that previously produced inconsistent maps between national and detail.
   const sharedTractReady =
-    stateRecord && stateRecord.substrate === 'tract' && stateRecord.renderUnits;
+    !precinctCovered && stateRecord && stateRecord.substrate === 'tract' && stateRecord.renderUnits;
 
   // Otherwise, run our own tract-level ReCom (falls back to county while
-  // loading or on error).
+  // loading or on error). Skipped entirely while precinct is active.
   const { tractData, partition: tractPartition, stage: tractStage, error: tractError } =
     useStateTractPartition(
-      sharedTractReady ? null : stateCode,
+      (precinctCovered || sharedTractReady) ? null : stateCode,
       data, seats, baseSeed
     );
 
   // Choose the active substrate. Order of preference:
+  //   0. Real precinct partition (precinct view)
   //   1. Shared tract partition from national upgrade
   //   2. Locally-computed tract partition
   //   3. County-fragment fallback
   let stateUnits, partition;
-  if (sharedTractReady) {
+  if (precinctReady) {
+    stateUnits = precinctData.units;
+    partition = precPartition;
+  } else if (sharedTractReady) {
     stateUnits = stateRecord.renderUnits;
     partition = stateRecord.partition;
   } else if (tractStage === 'ready' && tractPartition && tractData) {
@@ -3048,8 +3278,9 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     stateUnits = countyUnits;
     partition = countyPartition;
   }
-  const useTracts = sharedTractReady ||
-    (tractStage === 'ready' && tractPartition && tractData);
+  const usePrecinct = !!precinctReady;
+  const useTracts = !usePrecinct && (sharedTractReady ||
+    (tractStage === 'ready' && tractPartition && tractData));
   const k = partition ? partition.districtPop.length : 0;
 
   // Per-district results for the selected year
@@ -3305,27 +3536,44 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           <h2 style={S.sectionTitle}>{sg.name}</h2>
           <p style={{ ...S.sectionLede, marginBottom: 0 }} className="r-sectionlede">
             {k} congressional districts · {stateUnits.length.toLocaleString()}{' '}
-            {useTracts ? 'census tracts' : 'county units'} · max population deviation{' '}
+            {usePrecinct ? 'voting precincts · real ' + year + ' returns'
+              : useTracts ? 'census tracts' : 'county units'} · max population deviation{' '}
             <span style={{ color: maxDev <= 0.01 ? '#1a1a14' : maxDev <= 0.05 ? '#1a1a14' : '#c44536', fontWeight: 600 }}>
               {(maxDev * 100).toFixed(1)}%
             </span>
-            {tractStage === 'fetching' && (
+            {precinctCovered && precStage === 'fetching' && (
+              <span style={{ color: 'rgba(26,26,20,0.55)' }}> · fetching precinct geometry…</span>
+            )}
+            {precinctCovered && precStage === 'building' && (
+              <span style={{ color: 'rgba(26,26,20,0.55)' }}> · building precinct graph…</span>
+            )}
+            {precinctCovered && precStage === 'recom' && (
+              <span style={{ color: 'rgba(26,26,20,0.55)' }}> · running precinct-level ReCom on real returns…</span>
+            )}
+            {precinctCovered && precStage === 'error' && (
+              <span style={{ color: '#c44536' }}> · precinct data unavailable ({precError ? precError.slice(0, 40) : '—'}); showing model substrate</span>
+            )}
+            {substrate === 'precinct' && !PRECINCT_STATES.has(stateCode) && (
+              <span style={{ color: '#c44536' }}> · no precinct file built for {sg.name}; showing the model substrate</span>
+            )}
+            {!precinctCovered && tractStage === 'fetching' && (
               <span style={{ color: 'rgba(26,26,20,0.55)' }}> · fetching tract geometry…</span>
             )}
-            {tractStage === 'building' && (
+            {!precinctCovered && tractStage === 'building' && (
               <span style={{ color: 'rgba(26,26,20,0.55)' }}> · building tract graph…</span>
             )}
-            {tractStage === 'recom' && (
+            {!precinctCovered && tractStage === 'recom' && (
               <span style={{ color: 'rgba(26,26,20,0.55)' }}> · running tract-level ReCom…</span>
             )}
-            {tractStage === 'error' && (
+            {!precinctCovered && tractStage === 'error' && (
               <span style={{ color: '#c44536' }}> · tract data unavailable ({tractError ? tractError.slice(0, 40) : '—'}); showing county fallback</span>
             )}
             . Click anywhere outside the map (or press ESC) to return to the national view.
           </p>
         </div>
         <div style={S.detailHeaderControls}>
-          <YearSelector year={year} setYear={setYear} />
+          <YearSelector year={year} setYear={setYear}
+            allowedYears={substrate === 'precinct' ? PRECINCT_YEARS : null} />
           <button onClick={onClose} style={S.detailClose}>← Back to national</button>
         </div>
       </div>
@@ -3358,8 +3606,8 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 key={u.id}
                 d={u.pathD}
                 fill={unitColorForYear(u, year)}
-                stroke="rgba(0,0,0,0.06)"
-                strokeWidth={Math.max(0.05, (x1 - x0) / 1500)}
+                stroke={usePrecinct ? 'none' : 'rgba(0,0,0,0.06)'}
+                strokeWidth={usePrecinct ? 0 : Math.max(0.05, (x1 - x0) / 1500)}
               />
             ))}
             {/* Layer 2: district outlines.
@@ -3387,7 +3635,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 d={dp.pathD}
                 fill="none"
                 stroke="#1a1a14"
-                strokeWidth={Math.max(0.4, (x1 - x0) / 400)}
+                strokeWidth={usePrecinct ? Math.max(0.9, (x1 - x0) / 200) : Math.max(0.4, (x1 - x0) / 400)}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
@@ -3516,7 +3764,18 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           <div style={S.detailPanelNote}>
             Districts sorted by D-share. Each row's color swatch shows that district's lean on the
             R↔D scale. Population deviation is from {(stateUnits.reduce((s,u)=>s+u.pop,0)/k/1000).toFixed(0)}K target/district.
-            {useTracts ? (
+            {usePrecinct ? (
+              <> Granularity: <strong>voting precincts (2020 VTDs)</strong> — the actual
+                counted <strong>{year}</strong> presidential returns and 2020 census population
+                from Dave's Redistricting <code style={{
+                  fontFamily: '"JetBrains Mono", monospace', fontSize: '0.9em', background: 'rgba(26,26,20,0.06)', padding: '0 4px', borderRadius: 2,
+                }}>vtd_data</code>. <strong>No county-level modeling</strong>: unlike the
+                model substrate (county totals split across tracts by a density heuristic),
+                every vote here was cast and counted in the precinct it's shown in. Rook
+                adjacency from the precinct boundary graph. This is as close to a real-world
+                redistricting input as the tool gets — available only for the precinct cycles
+                ({PRECINCT_YEARS.join(', ')}) and the built states.</>
+            ) : useTracts ? (
               <> Granularity: <strong>2020 census tracts</strong>, with parent-county votes
                 disaggregated by tract population. Adjacency from shared topojson arcs, augmented
                 with bbox-proximity bridges for coastal/island tracts that the simplification
@@ -4183,15 +4442,21 @@ export default function USRedistrictingDashboard() {
   const { data, loadStage } = useData();
   const [year, setYear] = useState(YEAR_CONFIG.defaultYear);
   const [seed, setSeed] = useState(42);
+  // 'model'   = county→tract, density-modeled partisanship, all cycles
+  //             2000–2024 (the original substrate).
+  // 'precinct' = real precinct (2020 VTD) returns, no modeling, only the
+  //             cycles/states with precinct files (state-detail view).
+  const [substrate, setSubstrate] = useState('model');
   // `engaged` latches true the first time the user does something that
   // can't be served from a committed image (a custom seed, or any year
   // change). From then on the live engine drives the page.
   const [engaged, setEngaged] = useState(false);
 
-  // Pre-render fast path: a committed default seed, at the default year,
-  // before engagement. The image + summary render instantly; the algorithm
-  // and the ≈29 MB / ~28 s tract pipeline are never touched.
+  // Pre-render fast path: model substrate, a committed default seed, at the
+  // default year, before engagement. (Precinct mode never uses the
+  // pre-rendered model images.)
   const prerenderMode =
+    substrate === 'model' &&
     !engaged && DEFAULT_SEEDS.has(seed) && year === YEAR_CONFIG.defaultYear;
 
   const summary = usePrerendered(seed, prerenderMode);
@@ -4217,15 +4482,28 @@ export default function USRedistrictingDashboard() {
     if (!DEFAULT_SEEDS.has(s)) setEngaged(true);
     setSeed(s);
   };
+  const handleSetSubstrate = (s) => {
+    if (s === substrate) return;
+    if (s === 'precinct') {
+      setEngaged(true); // precinct never uses the model pre-render images
+      // Snap to the nearest covered presidential cycle.
+      if (!PRECINCT_YEARS.includes(year)) {
+        const near = PRECINCT_YEARS.reduce((a, b) =>
+          Math.abs(b - year) < Math.abs(a - year) ? b : a);
+        setYear(near);
+      }
+    }
+    setSubstrate(s);
+  };
 
   return (
     <div style={S.app}>
       <style>{globalCSS}</style>
       <Header />
       <section style={S.headlineSection}>
-        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} seed={seed} setSeed={handleSetSeed} />
+        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={handleSetSubstrate} />
       </section>
-      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} />
+      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} substrate={substrate} />
       <Footer />
     </div>
   );
