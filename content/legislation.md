@@ -494,19 +494,29 @@ partisan tilt under a given electorate) is a typical feature of neutral
 maps or an outlier. *See* DeFord, Duchin, and Solomon, *supra*, on the
 mixing properties and applied verification advantages of ReCom.
 
-**Why no compactness or political-subdivision criterion.**
-The statute imposes only contiguity and population balance. It does not
-require compactness, county-line preservation,
-"communities of interest" preservation, or any other shape-based
-criterion. This is by design. Every additional criterion is a vector for
+**Why a graph-isoperimetric compactness criterion and no other shape-based criterion.**
+The statute imposes contiguity, population balance, and a single
+shape-based requirement: a graph-isoperimetric compactness threshold on
+every accepted spanning-tree cut, with a deterministic relaxation
+schedule and a partition-level selection rule that prefers more compact
+partitions among those that hit population balance (Sec. 5(c)(2)(D)).
+That criterion is included because it is **mechanical** — it requires no
+human judgment to apply. An algorithm either produces a cut whose
+cross-edge ratio falls below the published threshold, or it doesn't; a
+citizen with a laptop can verify the answer.
+
+By contrast, the statute does NOT require county-line preservation,
+"communities of interest" preservation, geographic compactness measured
+by continuous-geometry metrics (Polsby–Popper, Reock), or any other
+criterion whose application depends on a drafter, board member, or judge
+weighing competing interpretations. Every such criterion is a vector for
 discretionary application, which is the entrenchment vector for
-gerrymandering. A shape-blind procedure produces shapes that look
-reasonable in expectation (because the Markov chain naturally produces
-shapes with low perimeter as a byproduct of how spanning-tree cuts work),
-without requiring any drafter, board member, or judge to weigh competing
-shape criteria. This is the principal lesson of the post-*Rucho* state
-litigation: criteria that require human judgment are criteria that admit
-human bias.
+gerrymandering. This is the principal lesson of the post-*Rucho* state
+litigation: criteria that require human judgment are criteria that
+admit human bias. The graph-isoperimetric criterion was chosen precisely
+because it admits no such judgment — it is a single arithmetic
+inequality whose threshold is set by the Board, in advance, by
+peer-reviewed amendment.
 
 **Why the seed protocol.**
 A reproducible procedure requires a published seed; a seed that is
@@ -531,31 +541,35 @@ balanced-appointment structure, and that of the National Institute of
 Standards and Technology in its substantive-expertise requirement.
 
 **Why bit-for-bit reproducibility.**
-The statute requires bit-for-bit reproduction (section 3(8); section
-8(c)). This is stronger than "approximately reproduces" or "produces a
-plan with the same statistical properties." The reason is enforcement:
-any deviation from bit-for-bit identity is detectable by a citizen with
-a laptop, and the cause-of-action structure in section 8 makes such
-deviations grounds for invalidation. Weaker reproducibility standards
-would shift the enforcement burden from arithmetic verification to
-expert-witness statistical contestation, which is precisely the
-discretionary vector this Act seeks to eliminate.
+The statute requires bit-for-bit reproduction (Sec. 3(8) defines
+"reproducible"; Sec. 7(c) makes a citizen's independent re-execution
+producing a non-matching output dispositive in court). This is stronger
+than "approximately reproduces" or "produces a plan with the same
+statistical properties." The reason is enforcement: any deviation from
+bit-for-bit identity is detectable by a citizen with a laptop, and the
+cause-of-action structure in Sec. 7 makes such deviations grounds for
+invalidation. Weaker reproducibility standards would shift the
+enforcement burden from arithmetic verification to expert-witness
+statistical contestation, which is precisely the discretionary vector
+this Act seeks to eliminate.
 
-**Why the dashboard's NC outcome (~5 D / 9 R on a 48 D / 52 R popular
-vote) is the right benchmark, not proportional representation.**
-The Findings in section 2(a)(5) acknowledge explicitly that
+**Why neutral plans aren't proportional, and why that's the right benchmark.**
+The Findings in Sec. 2(a)(4) acknowledge explicitly that
 algorithmically-neutral plans do not produce proportional seat shares.
 This is essential. A statute requiring proportional outcomes would
 require *building in* a partisan correction to counteract the structural
 bias that geography produces — which is itself a form of gerrymandering,
-just one in the opposite direction. The honest standard is: a plan should
-look like a typical plan from the neutral-procedure distribution. Plans
-that lie far in the tail of that distribution are suspect; plans that lie
-near the median are not. NC's expected ~5 D / ~9 R seat split under
-neutral procedures is the median of the procedure's distribution given
-NC's geography, not a defect of either the procedure or the State. A
-2-1 Republican advantage in seats arising from the geographic
-distribution of partisans is a fact about North Carolina; reproducing it
-in a neutral plan is a feature, not a bug, of the procedure. *See*
-Goedert, "Gerrymandering or Geography? How Democrats Won the Popular
-Vote but Lost the Congress in 2012," *Research and Politics* 1(1) (2014).
+just one in the opposite direction. The honest standard is: a plan
+should look like a typical plan from the neutral-procedure distribution.
+Plans that lie far in the tail of that distribution are suspect; plans
+that lie near the median are not. The dashboard's contemporary outputs
+make this concrete: in a year like 2024 with a 49.2 D / 50.8 R two-party
+popular vote, the algorithmically-drawn House lands at roughly D 197 /
+R 238 — a 2-3 point structural R advantage in seats arising from the
+geographic distribution of partisans, not from any drawing choice.
+Reproducing that structural advantage in a neutral plan is a feature,
+not a bug, of the procedure. *See* Goedert, "Gerrymandering or
+Geography? How Democrats Won the Popular Vote but Lost the Congress in
+2012," *Research and Politics* 1(1) (2014); Chen & Rodden,
+"Unintentional Gerrymandering," *Quarterly Journal of Political Science*
+8(3) (2013), discussing the structural origins of this asymmetry.

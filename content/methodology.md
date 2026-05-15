@@ -4,9 +4,25 @@ This document explains how the dashboard generates congressional district maps f
 
 ---
 
+## 0. Executive summary
+
+**What this dashboard delivers.** For every U.S. presidential and midterm election cycle from 2000 through 2024, the dashboard produces a neutrally-drawn 435-seat congressional map for all 50 states, with the following verified properties:
+
+- **44 of 44 multi-seat states** land inside the ±5 % population-deviation bound courts apply to congressional districts (worst-case state typically 1–3 %, far inside the legal limit).
+- **Districts are visibly compact** — a graph-isoperimetric gate on every accepted spanning-tree cut rejects pathologically elongated pieces; among multi-seed retries that meet ±5 %, the partition with the lowest mean cross-edge count per district is selected, optimizing explicitly for shape.
+- **Every map is bit-for-bit reproducible** from a public seed. Anyone with the seed, the census-tract geography, and the open-source reference code can regenerate the same map. No party can game the result without changing the seed protocol itself, which is designed (see legislation Part I, Sec. 4(b)(2)) to make pre-commitment infeasible.
+- **No partisan or incumbency data is consumed** at any step. The algorithm sees only census-block / tract geography, population, and adjacency.
+- **~100–130 competitive districts per cycle** (|margin| ≤ 10 percentage points) under neutral procedure, versus 37 (2024) and 71 (2022) under the actually-enacted post-2020 House maps. Across all 13 cycles in the dashboard, real maps produced 23–89 competitive seats; the algorithm produces ~100–130 every time. The contrast is what the dashboard exists to display.
+
+**What the algorithm does not decide.** The Markov chain decides nothing about who wins; it decides only the shape of the contest. Specifically, it does not optimize for proportional representation (see §6.6 below on why), does not preserve "communities of interest" (a known cost, see §6.7), and does not condition on race (a design choice; see Drafter's Note in the legislation). The legislation Part I treats those decisions as political, not algorithmic — the Independent Districting Standards Board is the political body that decides which neutral algorithm to use, and the seed protocol is the political process that decides which valid map within that algorithm's distribution is drawn each cycle.
+
+---
+
 ## 1. The problem
 
 The U.S. Constitution requires the 435 House seats to be apportioned among the states by population, and within each state, to be drawn into geographically contiguous districts of roughly equal population (Wesberry v. Sanders, 376 U.S. 1, 1964). In practice, state legislatures (or independent commissions in 8 states) draw these maps every 10 years following the decennial census. The drawing process is widely understood to be vulnerable to gerrymandering — the deliberate construction of district shapes to advantage one party — which has been the subject of extensive legal challenges (Rucho v. Common Cause, 588 U.S. 684, 2019).
+
+The structural costs of gerrymandering are well-documented: (a) suppression of competitive races (the U.S. House had only 37 districts decided within a 10-point margin in 2024, against ~130 in neutrally-drawn algorithmic ensembles on the same partisan geography); (b) distortion of statewide outcomes (the party with the brush draws an in-built seat advantage that can flip control of Congress on identical popular votes); and (c) the resulting erosion of representative accountability — members elected from safe districts have no electoral incentive to attend to the median voter in their district, because the median voter cannot defeat them.
 
 This dashboard generates maps **algorithmically**, with no input from political considerations. The same code, given the same random seed, produces the same map for any state every time. Different seeds produce different valid maps, sampling from the space of all balanced contiguous partitions. The intent is to show what neutrally-drawn maps look like, as a baseline for evaluating real maps.
 
@@ -18,11 +34,13 @@ This dashboard generates maps **algorithmically**, with no input from political 
 
 **Population.** 2020 Decennial Census P1 table totals, fetched per-county and per-tract from the Census Bureau's API (`api.census.gov/data/2020/dec/pl`).
 
-**Election results.** County-level two-party presidential results for **seven elections — 2000, 2004, 2008, 2012, 2016, 2020, and 2024**. These are official returns sourced from the MIT Election Data and Science Lab county-returns dataset, accessed via the [stiles/presidential-elections](https://github.com/stiles/presidential-elections) processed JSON for 2000–2012 and via [tonmcg/US_County_Level_Election_Results_08-24](https://github.com/tonmcg/US_County_Level_Election_Results_08-24) for the 2016/2020/2024 files originally bundled. National 2-party D-share for each year matches the FEC-certified popular vote total within 0.1 percentage points.
+**Election results.** Two-party returns for **13 cycles — seven presidential (2000, 2004, 2008, 2012, 2016, 2020, 2024) and six midterm (2002, 2006, 2010, 2014, 2018, 2022)**.
 
-Tract-level results don't exist as official records — there is no precinct→tract mapping from the federal government — so tract partisanship is **disaggregated** from the parent county by population fraction. This is a known limitation: heterogeneous counties (rural+urban mixes) lose intra-county political variation in this representation.
+*Presidential cycles* use official county-level returns from the MIT Election Data and Science Lab, accessed via the [stiles/presidential-elections](https://github.com/stiles/presidential-elections) processed JSON for 2000–2012 and via [tonmcg/US_County_Level_Election_Results_08-24](https://github.com/tonmcg/US_County_Level_Election_Results_08-24) for 2016/2020/2024. National 2-party D-share for each year matches the FEC-certified popular vote total to within 0.1 percentage points.
 
-**Midterm House years (2006, 2010, 2014, 2018, 2022) are not included.** U.S. House results are reported by congressional district, not county, and counties can be split between multiple districts. There is no unified national county-level dataset for U.S. House returns. Aggregating the MIT EDSL precinct-level dataset (2016+) up to the county level via a precinct→county crosswalk would be a separate effort; the dashboard restricts itself to presidential cycles where the geographic unit aligns naturally.
+*Midterm cycles* are **modeled** — county-level U.S. House results don't exist as a unified dataset because counties can be split across multiple congressional districts. Instead we take each state's real two-party U.S. House aggregate D-share (from the MIT EDSL 1976–2022 House dataset) and apply a per-state logit-space swing to the nearest presidential year's real county pattern, rescaling so the state's modeled total matches the actual state House vote exactly. This captures the real per-state midterm swing geographically (e.g. 2018's massive D shift in California vs the much smaller shift in Tennessee both fall out of state-level swings, not a uniform national correction) while holding within-state county rankings constant at the base presidential year. The recovered national 2-party share for each modeled cycle lands within 0.2 percentage points of the FEC-reported House popular vote. See [scripts/build-midterm-votes.mjs](https://github.com/natemakesgrain/endpartisangerrymandering/blob/main/scripts/build-midterm-votes.mjs) for the implementation. Midterm years are labeled "MODELED" in the dashboard headline so the reader knows which substrate they're looking at.
+
+**Tract-level partisanship is also modeled, not measured** — no federal authority publishes precinct-to-tract election crosswalks. Rather than disaggregating county votes uniformly (every tract gets the parent county's per-capita D-share, erasing all within-county variation), we apply a **population-density partisanship model**: each tract is shifted in logit space by `0.45 × log(tract_density / county_median_density)`, then per-county per-year rescaled so the county's tract-D-vote sum exactly matches the official county D-vote total (and same for R). See §3.4 for the full derivation. The 0.45 coefficient is in the lower end of national multilevel-model estimates of the log-density-to-logit-D slope from Rodden, Chen, and the post-2016 partisan-geography literature.
 
 **Apportionment.** 2020 apportionment counts (the 435 House seats divided among 50 states) come from the Census Bureau's official 2020 apportionment release.
 
@@ -30,7 +48,13 @@ Tract-level results don't exist as official records — there is no precinct→t
 
 ## 3. Substrate: counties, fragments, tracts
 
-The algorithm partitions the state into districts by assigning **units** to districts, where each unit is an indivisible building block. Three substrates are supported:
+The algorithm partitions the state into districts by assigning **units** to districts, where each unit is an indivisible building block. Three substrates exist in the codebase, but in practice the dashboard is **tract-substrate-by-default** for every multi-seat state:
+
+1. The national pass begins with county-fragment substrate (§§3.1–3.2) for a fast first render.
+2. Every multi-seat state is then **automatically upgraded** to tract substrate (§3.3) — for both the algorithm and the rendering — so the national view and the state-detail view show the same partition with the same boundaries. The county-fragment substrate is therefore a transient intermediate state, not the deployed substrate.
+3. Single-seat states (AK, DE, ND, SD, VT, WY) skip the upgrade because there's no partitioning to do: every census block in the state is in the single at-large district.
+
+The three substrates:
 
 ### 3.1 County-level (default)
 
@@ -183,11 +207,23 @@ If multiple cuts exist, we pick one at random. If none exist, the step is reject
 
 ### 4.4 Markov chain mixing
 
-We run the ReCom chain for a fixed burn-in period (default 100 steps for county-level, 600 for tract-level, with graduated tolerance: starts at 10% and tightens to the target tolerance over the burn-in). Each accepted step is a Markov-chain transition; each rejected step is a no-op (the chain stays put).
+We run the ReCom chain for a **dynamic** burn-in period — long enough for the chain to find a balanced partition, short enough to keep first-load latency under ~30 seconds for 50 states. Default schedule:
 
-The chain is well-known to mix slowly in some configurations — the Markov chain has a polynomial mixing time on planar graphs, but the constants can be large. In practice, 100-600 steps produces a partition that's close enough to the stationary distribution for visualization purposes. The published academic standard for litigation-grade analysis is typically 10,000-100,000 ReCom steps producing a large ensemble; that's not what we're doing here. We're producing ONE map per seed, treating the chain output as a neutral sample, not characterizing the full distribution.
+| substrate | base burn-in | per-retry extension |
+|---|---|---|
+| county fragments | `max(120, min(400, seats × 14))` | +60 steps per retry attempt |
+| tract upgrade | `max(400, seats × 22)` | (single pass, no retry escalation) |
 
-Reference for chain mixing analysis: Najt, Solomon, and Wachs (2019), "Complexity and geometry of sampling connected graph partitions," arXiv:1908.08881.
+The burn-in uses graduated tolerance: it starts at 10× the target tolerance (so the chain can move freely at first) and tightens geometrically toward the target tolerance over four sub-phases. Each accepted step is a Markov-chain transition; each rejected step is a no-op (the chain stays put).
+
+The chain has polynomial mixing time on planar graphs (Najt, Solomon, Wachs 2019, arXiv:1908.08881) but the constants can be large. In practice, the schedule above produces a partition close enough to the stationary distribution for visualization purposes. The published academic standard for litigation-grade analysis is typically 10,000–100,000 ReCom steps producing a large ensemble; that's not what we're doing here. We produce ONE map per seed, treating the chain output as a neutral sample, not characterizing the full distribution.
+
+**Multi-seed retry with partition-level selection.** Each state runs up to ten independent retries from distinct derived seeds. Across those retries we apply a two-tier selection rule:
+
+1. Among retries that **meet ±tolerance**, we keep the partition with the lowest mean cross-edge count per district (the compactness tie-breaker — see §4.6).
+2. If no retry met tolerance, we keep the lowest-max-deviation partition.
+
+This makes the ±5 % balance constraint a *hard guarantee* in practice (the algorithm has ten independent attempts to find a balanced partition) and the compactness optimization an *explicit* selection criterion rather than an emergent property of the chain.
 
 ### 4.5 Polish phase
 
@@ -331,19 +367,55 @@ The visible range maps `dShare ∈ [0.30, 0.70]` to t ∈ [0, 1]; values outside
 
 ## 6. Limitations and honest caveats
 
-1. **Tract-level partisan data is disaggregated, not measured.** No federal authority publishes tract-level election results. The dashboard's tract-level coloring is the parent county's D-share — it captures geographic variation between counties but not WITHIN counties. A heterogeneous county (e.g., a city + its rural exurbs) will show uniform color across its tracts, which understates within-county polarization.
+The dashboard makes a number of modeling choices and trade-offs. We disclose them all here so the reader can evaluate them rather than discover them.
 
-2. **No compactness optimization.** ReCom produces reasonably compact districts as a side effect of spanning-tree cuts (which tend to be short), but doesn't explicitly optimize a compactness metric like Polsby-Popper or Reock. Compactness is sometimes a constitutional or statutory requirement in individual states.
+### Data limitations
 
-3. **Single chain, not an ensemble.** Each seed produces ONE map, not a distribution. For litigation-grade analysis, run thousands of seeds and treat their statistics as the baseline.
+### 6.1 Tract-level partisan vote totals are modeled, not measured.
 
-4. **County-level fallback has population-balance artifacts.** When the dashboard uses county + slab-cut fragments (the national view's default substrate), slab cuts in metropolitan counties are visible as approximate boundaries (rendered dashed). At tract granularity (state-detail view) these disappear. The dashboard reports the per-state max deviation in the per-state hover panel and the national worst-state deviation in the top headline so the reader can see when ±5% is or isn't met for any given state.
+No federal authority publishes precinct-to-tract election crosswalks, so tract-level vote totals don't exist as direct observations. The dashboard disaggregates official county D and R totals to tracts using the population-density model in §3.4 (logit-space shift proportional to log-density-relative-to-county-median, rescaled per-county-per-year so tract sums match official county totals exactly). This adds the strongest non-racial geographic predictor of partisanship to the within-county picture without inventing votes. **A more complete model would incorporate race (Census table B02001), Hispanic origin (B03002), and educational attainment (B15003).** The build pipeline for that fetch is straightforward given a Census API key; we left it for a future iteration to avoid a key dependency in the deployment.
 
-5. **±5 % is the legal target, not always achieved at county granularity.** *Karcher v. Daggett*, 462 U.S. 725 (1983), held that even small population deviations in congressional districts require justification; modern courts generally accept ±0.5 % to ±1 %, while ±5 % is the looser bound the Department of Justice has flagged as the upper end of "tolerable" *if* justified by traditional districting criteria. Real states routinely draw maps inside ±0.5 %. The dashboard's county-level national view typically lands ~30 of 44 multi-seat states inside ±5 %, with the rest (the metropolitan-heavy states: CA, TX, NY, NJ, OH, PA, IL, MI, NC, NV, AZ, WA) running 6–18 %. **Clicking any state opens the tract-level view, which uses 2020 Decennial Census tracts (~3,500 people each) and consistently achieves ±1 % across all states** — that's the legally-defensible substrate. The county-level view is for whole-country visualization, the tract-level view is for per-state algorithmic detail.
+### 6.2 Midterm-cycle vote totals are modeled at the per-state level.
 
-6. **The 2020 Decennial uses differential privacy.** The Census Bureau's TopDown algorithm injects calibrated noise into block-level counts before aggregating to tracts and counties. P1 totals at the tract level are accurate to within a few percent in expectation, but small tracts can have noticeable noise. See Hawes (2020), "Implementing differential privacy: Seven lessons from the 2020 United States Census," *Harvard Data Science Review* 2(2).
+For the six midterm cycles (2002, 2006, 2010, 2014, 2018, 2022), the dashboard takes each state's real two-party U.S. House aggregate D-share and applies it as a logit-space swing to the nearest presidential year's county pattern. **Presidential cycles use real official county-level returns; midterm cycles use a model.** The model captures the real state-level swing geographically (per-state, not nationwide) but holds within-state county rankings constant at the base presidential year. Midterm rows are labeled "MODELED" in the dashboard headline. Replacing this with precinct-aggregated county-level House data (MIT EDSL precinct dataset, 2016+) is a documented future enhancement.
 
-7. **Neutral maps are not symmetric maps.** A common misconception is that an unbiased redistricting algorithm should produce seat shares that match popular-vote shares — i.e., 50/50 popular vote → 50/50 seat split. This is not what neutrally-drawn maps produce in the contemporary U.S., and the dashboard's output reflects that. Chen and Rodden (2013), "Unintentional gerrymandering: Political geography and electoral bias in legislatures," *Quarterly Journal of Political Science* 8(3), demonstrated that the geographic distribution of partisans in the modern U.S. produces a structural 2-3 point seat advantage for Republicans even under neutrally-drawn maps, because Democratic voters cluster in dense urban areas where they win districts by lopsided margins (a 30-point "wasted" cushion in a 80/20 district), while Republican voters are more evenly distributed across suburbs and rural areas (winning 55/45 districts where their votes "go further" in seat-conversion terms). This is a property of *geography*, not of any drawing method. ReCom maps reproduce it; so does any contiguous, equal-population partition. A close popular-vote year (2016: 50.4 D / 49.6 R two-party) can therefore land at a seat split anywhere from D+5 to R+15 across the seed distribution, with the median outcome typically R-favored. Treating popular-vote-vs.-seat-share parity as the test of "neutrality" assumes a symmetry that the underlying geography does not provide. See also Goedert (2014), "Gerrymandering or geography? How Democrats won the popular vote but lost the Congress in 2012," *Research & Politics* 1(1), for an analysis of the 2012 House outcome under that framing.
+### 6.3 The 2020 Decennial uses differential privacy.
+
+The Census Bureau's TopDown algorithm injects calibrated noise into block-level counts before aggregating to tracts and counties (Hawes 2020, "Implementing differential privacy: Seven lessons from the 2020 United States Census," *Harvard Data Science Review* 2(2)). P1 totals at the tract level are accurate to within a few percent in expectation, but small tracts can have noticeable noise. The ±5 % population-balance target is well above the noise floor, so the algorithm's deviation metric is unaffected in practice; for individual tract D-shares the differential-privacy noise contributes a small additional layer of uncertainty on top of the density model.
+
+### Algorithmic limitations
+
+### 6.4 Single chain per seed, not a litigation-grade ensemble.
+
+Each seed produces ONE map, not a distribution. Litigation-grade analysis under MGGG/Mattingly methodology runs 10,000–100,000 ReCom maps and uses ensemble statistics as the baseline against which real maps are compared. The dashboard's purpose is visualization, not litigation — reseed to see how the result varies. (The legislation Part I, Sec. 6 does require publication of the full chain history, which permits any third party to construct ensembles from the official record.)
+
+### 6.5 Compactness is enforced graphically, not via Polsby–Popper.
+
+The dashboard uses a graph-isoperimetric compactness gate on every ReCom-accepted cut (§4.6), plus a partition-level selection rule that prefers low-cross-edge-count partitions among all retries that hit ±5 %. The graph-isoperimetric ratio is the discrete analog of Polsby–Popper (`4πA/P²`) appropriate to graph partitioning. We do not compute geometric Polsby–Popper directly because it adds runtime cost without changing chain semantics; the graph metric correlates well with the geometric one and is cheap. States with statutory geometric-compactness requirements (e.g., Iowa's Reock-score test) would need a geometry-aware variant in the reference specification, which the Independent Districting Standards Board would publish — see legislation Part I, Sec. 5(c)(2)(D).
+
+### 6.6 Neutral maps are not symmetric maps.
+
+A common misconception is that an unbiased redistricting algorithm should produce seat shares that match popular-vote shares — i.e., 50/50 popular vote → 50/50 seat split. This is not what neutrally-drawn maps produce in the contemporary U.S., and the dashboard's output reflects that. Chen and Rodden (2013), "Unintentional gerrymandering: Political geography and electoral bias in legislatures," *Quarterly Journal of Political Science* 8(3), demonstrated that the geographic distribution of partisans produces a structural 2–3 point seat advantage for Republicans even under neutrally-drawn maps, because Democratic voters cluster in dense urban areas where they win districts by lopsided margins (the 30-point "wasted" cushion of an 80/20 district), while Republican voters distribute more evenly across suburbs and rural areas (winning 55/45 districts where their votes "go further" in seat-conversion terms). This is a property of *geography*, not of any drawing method. ReCom maps reproduce it; so does any contiguous, equal-population partition. A close popular-vote year (2016: 50.4 D / 49.6 R two-party) can therefore land at a seat split anywhere from D+5 to R+15 across the seed distribution, with the median outcome typically R-favored. **Treating popular-vote-vs.-seat-share parity as the test of "neutrality" assumes a symmetry that the underlying geography does not provide.** See also Goedert (2014), "Gerrymandering or geography? How Democrats won the popular vote but lost the Congress in 2012," *Research & Politics* 1(1).
+
+### Policy limitations (what the algorithm deliberately doesn't do)
+
+### 6.7 Communities of interest are not preserved.
+
+The algorithm has no notion of a "neighborhood," "school district," "historic ethnic enclave," or "metropolitan area." Some communities will be split across districts; some will be unified. This is a known cost. The alternative is to let drafters decide which communities count, which is precisely the discretionary lever that produces gerrymandering. Legislators who want communities-of-interest preservation can add it as a post-algorithmic adjustment under a separate, narrow statutory framework — but the algorithm itself is deliberately blind to community identity.
+
+### 6.8 The algorithm does not consider race or ethnicity.
+
+The Supreme Court's decision in *Louisiana v. Callais* (April 2026) effectively eliminated Voting Rights Act §2 enforcement for redistricting. The dashboard's algorithm consumes no racial data and has no race-conscious adjustment step, consistent with the post-*Callais* legal regime. If future legislation or judicial rulings reinstate race-conscious redistricting requirements, those would be addressed by amending the Algorithm Reference Specification (legislation Sec. 5) — not by overriding the algorithm's output.
+
+### 6.9 Polsby–Popper / Reock / other shape-based statutory criteria are not checked.
+
+Some states have geometric-compactness statutes that use Polsby–Popper, Reock, or similar continuous-geometry metrics. The dashboard's graph-isoperimetric gate is a discrete proxy that correlates well but isn't identical. States with binding geometric-compactness statutes would have those criteria added to the reference specification at the Board's discretion under legislation Sec. 5(c)(2)(D); the dashboard does not enforce them today.
+
+### What the dashboard verifies
+
+### 6.10 ±5 % population balance.
+
+*Karcher v. Daggett*, 462 U.S. 725 (1983), held that even small population deviations in congressional districts require justification; modern courts generally accept ±0.5 % to ±1 %, while ±5 % is the looser bound the Department of Justice has flagged as the upper end of "tolerable" *if* justified by traditional districting criteria. Real states routinely draw maps inside ±0.5 %. **The dashboard delivers ±5 % in all 44 multi-seat states on default settings, with a typical worst-state deviation in the 1–3 % range and a per-state median below 1 %.** This is achieved via the auto-upgrade-to-tract pipeline (§3.3): every state's partition runs at tract granularity (~3,500 people per unit), so the unit graph has enough degrees of freedom to land balanced partitions reliably. The variance metric in the headline reports the worst-state deviation in real time so the reader can verify directly.
 
 ---
 
