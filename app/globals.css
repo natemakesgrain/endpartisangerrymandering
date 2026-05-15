@@ -370,6 +370,22 @@ a:hover { text-decoration-color: var(--ink); }
   .prose { padding: 36px 24px 72px; }
 }
 
+/* Narrow phones: the brand name + 3 nav links don't fit on one row, so
+   stack the bar — brand on its own line(s), links in a row beneath it.
+   Without this the links get pushed off the right edge at ≤ ~430px. */
+@media (max-width: 560px) {
+  .nav-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+  }
+  .nav-brand { font-size: 16px; gap: 10px; align-items: center; }
+  .nav-brand-mark { font-size: 10px; padding: 2px 6px; }
+  .nav-links { gap: 22px; }
+  .nav-link { font-size: 12px; }
+}
+
 /* ---- Hero (homepage above the dashboard) ------------------------------- */
 .hero {
   max-width: var(--col-wide);
