@@ -1,0 +1,371 @@
+# Algorithmic Congressional Redistricting: Technical Overview
+
+This document explains how the dashboard generates congressional district maps for all 50 states, end-to-end. It covers the data sources, the algorithm, the geometric rendering, and the trade-offs at each stage.
+
+---
+
+## 1. The problem
+
+The U.S. Constitution requires the 435 House seats to be apportioned among the states by population, and within each state, to be drawn into geographically contiguous districts of roughly equal population (Wesberry v. Sanders, 376 U.S. 1, 1964). In practice, state legislatures (or independent commissions in 8 states) draw these maps every 10 years following the decennial census. The drawing process is widely understood to be vulnerable to gerrymandering — the deliberate construction of district shapes to advantage one party — which has been the subject of extensive legal challenges (Rucho v. Common Cause, 588 U.S. 684, 2019).
+
+This dashboard generates maps **algorithmically**, with no input from political considerations. The same code, given the same random seed, produces the same map for any state every time. Different seeds produce different valid maps, sampling from the space of all balanced contiguous partitions. The intent is to show what neutrally-drawn maps look like, as a baseline for evaluating real maps.
+
+---
+
+## 2. Data sources
+
+**Geography.** County polygons come from the U.S. Census Bureau's 2020 cartographic boundary shapefiles (`cb_2020_us_county_500k`), simplified and pre-projected to Albers USA pixel space via the `us-atlas` library (Bostock 2010-present). Tract-level data (used in the state-detail view when configured) comes from the corresponding tract-level shapefiles (`cb_2020_<FIPS>_tract_500k`), processed identically.
+
+**Population.** 2020 Decennial Census P1 table totals, fetched per-county and per-tract from the Census Bureau's API (`api.census.gov/data/2020/dec/pl`).
+
+**Election results.** County-level two-party presidential results for **seven elections — 2000, 2004, 2008, 2012, 2016, 2020, and 2024**. These are official returns sourced from the MIT Election Data and Science Lab county-returns dataset, accessed via the [stiles/presidential-elections](https://github.com/stiles/presidential-elections) processed JSON for 2000–2012 and via [tonmcg/US_County_Level_Election_Results_08-24](https://github.com/tonmcg/US_County_Level_Election_Results_08-24) for the 2016/2020/2024 files originally bundled. National 2-party D-share for each year matches the FEC-certified popular vote total within 0.1 percentage points.
+
+Tract-level results don't exist as official records — there is no precinct→tract mapping from the federal government — so tract partisanship is **disaggregated** from the parent county by population fraction. This is a known limitation: heterogeneous counties (rural+urban mixes) lose intra-county political variation in this representation.
+
+**Midterm House years (2006, 2010, 2014, 2018, 2022) are not included.** U.S. House results are reported by congressional district, not county, and counties can be split between multiple districts. There is no unified national county-level dataset for U.S. House returns. Aggregating the MIT EDSL precinct-level dataset (2016+) up to the county level via a precinct→county crosswalk would be a separate effort; the dashboard restricts itself to presidential cycles where the geographic unit aligns naturally.
+
+**Apportionment.** 2020 apportionment counts (the 435 House seats divided among 50 states) come from the Census Bureau's official 2020 apportionment release.
+
+---
+
+## 3. Substrate: counties, fragments, tracts
+
+The algorithm partitions the state into districts by assigning **units** to districts, where each unit is an indivisible building block. Three substrates are supported:
+
+### 3.1 County-level (default)
+
+3,143 U.S. counties (and county-equivalents like Louisiana parishes, Alaska boroughs) form the natural unit set. ReCom (the partition algorithm — see §4) assigns each county to a district such that contiguous groups of counties form equal-population districts.
+
+**Problem.** A target district is roughly state-population / state-seats people (e.g., NC: 10.4M/14 ≈ 740K). Several U.S. counties are larger than this: Los Angeles County has ~10M people (13× the target), Cook County (Chicago) has ~5M, Maricopa (Phoenix) has ~4.4M. ReCom can't balance districts at county granularity if any single county is bigger than the target.
+
+### 3.2 County fragments (slab-cut counties)
+
+When a county exceeds the state's target district population, we **slab-subdivide** it into N approximately equal-population fragments via recursive bisection along the longest axis:
+
+```
+slabSubdivide(polys, N):
+  if N <= 1: return [polys]
+  axis = longest dimension of bbox
+  for i in 1..N-1:
+    binary-search for split position along axis
+    such that area below split ≈ totalArea / N
+  return N fragments
+```
+
+This produces N fragments that look like horizontal or vertical strips cutting through the county. Each fragment inherits a per-capita share of the parent county's population and votes. Fragments are bridged in the adjacency graph by both shared geometric edges (between consecutive slabs) and the centroid-nearest-fragment matcher (which connects fragments to neighboring counties). This is enough for ReCom to operate.
+
+**Tradeoff.** Slab cuts are arbitrary — population balance demands they exist, but their exact placement is a function of the algorithm, not real geography. When two adjacent fragments end up in different districts, the "boundary between them" is not a meaningful district line — it's an artifact. The dashboard renders these slab-cut boundaries as dashed light strokes (rather than solid black) to signal their approximate nature, while real geographic boundaries (county lines, state lines) get solid strokes.
+
+### 3.3 Census tracts (national auto-upgrade + state-detail view)
+
+Tracts are the canonical fine-grained Census Bureau unit: ~84,000 nationwide, ~2,000-9,000 per state, average ~3,500 people each. At tract granularity, no tract is larger than the target district population, so no subdivision is needed. Ramifications:
+
+- **Population balance**: easily achievable to within ±1% (vs ±5% at county granularity)
+- **Geographic boundaries**: organic, following real census-tract lines (which themselves follow streets, rivers, neighborhoods)
+- **No slab artifacts**: the artificial cuts that show up in metropolitan counties at county granularity are absent
+- **Cost**: ~28 MB of geometry must be served (51 per-state files), bundled with the static build
+
+The algorithm itself is identical across substrates.
+
+**Automatic upgrade for failing states.** After the county-level pass completes, every state whose `maxDev > tolerance` (i.e. still over ±5%) is *automatically* upgraded to tract-level partitioning, sorted worst-first. For each such state we (a) lazy-fetch its tract topojson, (b) build tract units and adjacency (Wilson's algorithm + the same shared-arc adjacency derivation used at county level), (c) run ReCom on the tract graph with a tighter tolerance (`min(target_tolerance, 2%)`) and longer burn-in (`max(400, seats × 22)`), (d) project the tract assignment back to county fragments by bbox containment (with nearest-centroid fallback), and (e) replace the failing partition with the upgraded one. The variance metric and per-state population balance reported in the headline reflect the underlying **tract-level** deviation — the projection back to fragments is rendering only. This delivers 44/44 multi-seat states inside ±5 % on default settings.
+
+### 3.4 Within-county partisanship: density-weighted disaggregation
+
+No federal authority publishes precinct-to-tract election crosswalks, so tract-level vote totals don't exist as direct measurements. Earlier versions of this dashboard disaggregated county votes uniformly across tracts (every tract within a county got the same per-capita D-share), erasing all within-county geographic variation in partisanship.
+
+We now apply a **population-density partisanship model**:
+
+```
+for each tract t in county C:
+  density_t  = tract_pop_t / tract_area_t                        (people per pixel² in Albers USA)
+  rel_t      = log(density_t / median_density_within_C)
+  dLean_t    = 0.45 × rel_t                                      (logit-space shift)
+
+for each year:
+  p_t        = sigmoid(logit(C.dshare_year) + dLean_t)            (predicted tract D-share)
+  raw_d_t    = (tract_pop_t / county_pop_C) × C.total_votes_year × p_t
+  raw_r_t    = (tract_pop_t / county_pop_C) × C.total_votes_year × (1 - p_t)
+
+  # rescale per county per year so totals match the official county returns exactly
+  scale_d    = C.d_year / Σ_t raw_d_t      
+  scale_r    = C.r_year / Σ_t raw_r_t
+  tract.d_year = round(raw_d_t × scale_d)
+  tract.r_year = round(raw_r_t × scale_r)
+```
+
+The 0.45 coefficient is the discrete-tract analog of the log-density-to-logit-D slope in published national multilevel models (Rodden, Chen, and others place it in the 0.3–0.7 range; we picked a middle value). The rescaling is the critical step: it preserves the *county-level truth* of the official returns exactly while adding within-county variation along the urban-rural axis.
+
+**Limitations.** Density is the strongest non-racial predictor of partisanship, but race and education matter too — Black-majority urban tracts vote more D than non-Black urban tracts of equal density, and college-educated suburbs have shifted sharply D since 2016. A more complete model would incorporate ACS tables B02001 (race), B03002 (Hispanic origin), and B15003 (educational attainment for 25+). The build pipeline for that is straightforward (fetch via Census API given a key, embed per-tract `dLean` factors into the tract topojson) but lives outside this iteration.
+
+---
+
+## 4. The partitioning algorithm: ReCom
+
+ReCom (short for **Re**combination) is a Markov chain Monte Carlo method for sampling from the space of valid balanced contiguous partitions of a graph. It was introduced in DeFord, Duchin, and Solomon (2021), "Recombination: A family of Markov chains for redistricting," *Harvard Data Science Review* 3(1) [<https://hdsr.mitpress.mit.edu/pub/1ds8ptxu>]. ReCom is widely used in academic and litigation-related redistricting analysis: it appears in Mattingly's North Carolina ensemble work (Bangia, Graves, Herschlag, Kang, Luo, Mattingly, Ravier 2017; *cf.* Common Cause v. Rucho, 318 F. Supp. 3d 777, M.D.N.C. 2018) and in MGGG's expert reports across multiple state redistricting cases.
+
+The implementation here closely follows the standard formulation:
+
+### 4.1 Setup
+
+Given:
+- A set of $N$ units, each with population $p_i$
+- An adjacency graph $G = (V, E)$ where $V$ are units and $E$ connects geographically-adjacent units
+- A number of districts $k$ (= state's apportioned seats)
+- A balance tolerance $\epsilon$ (e.g., 0.05 = ±5%)
+
+Goal: a partition of $V$ into $k$ disjoint subsets $D_1, \dots, D_k$ such that:
+1. Each $D_i$ induces a connected subgraph of $G$ (contiguity)
+2. Each $D_i$'s total population is within $(1 \pm \epsilon)$ of $\bar{p} = \sum p_i / k$ (balance)
+
+### 4.2 Initial partition: recursive bisection
+
+We start with a single trivial partition (everything in district 1) and recursively split it:
+
+```
+recomInitialPartition(units, adjacency, k, rng):
+  districts = [{ all units }]
+  while len(districts) < k:
+    pick a district to split (largest-population first)
+    bisect it into two via balanced spanning-tree cut (see §4.3)
+  return districts
+```
+
+Bisection uses a single ReCom step constrained to produce a 2-way split.
+
+### 4.3 The recombination step (ReCom)
+
+The core operation: given two adjacent districts $D_i$ and $D_j$, merge them, sample a uniform spanning tree of the merged region, find a balanced edge to cut, and reassign units to either side of the cut. Pseudocode:
+
+```
+recomStep(state, rng, opts):
+  pick adjacent district pair (D_i, D_j)
+    — biased toward pairs whose pop sum gives more cut options
+  T = uniformSpanningTree(D_i ∪ D_j, adjacency, rng)
+  # T is a spanning tree of |D_i ∪ D_j| nodes, |D_i ∪ D_j| - 1 edges
+  cut_edge = find a tree edge whose removal gives two components with
+             populations within ±epsilon of target
+  if no such cut_edge exists: REJECT (try again)
+  D_i' = one component, D_j' = other component
+  ACCEPT: replace (D_i, D_j) with (D_i', D_j')
+```
+
+#### 4.3.1 Uniform spanning tree (Wilson's algorithm)
+
+We sample a uniformly-random spanning tree via Wilson's algorithm (Wilson 1996, "Generating random spanning trees more quickly than the cover time"; *cf.* Propp & Wilson 1998), which uses loop-erased random walks. Critically, the resulting tree is a uniform random sample over all spanning trees — required for the underlying Markov chain to be well-defined. The standard spanning-tree-via-DFS approach would NOT preserve the uniform distribution and could systematically bias the resulting maps.
+
+```
+uniformSpanningTree(nodes, adjacency, rng):
+  root = nodes[0]
+  parent = {root: -1}
+  for each node v not yet in tree:
+    walk randomly from v until hitting the tree
+    erase loops in the walk path
+    set parent[walk path nodes] = next-node-in-walk
+  return parent
+```
+
+#### 4.3.2 Balanced tree cut via dynamic programming
+
+Given the spanning tree, we find a balanced edge cut in O(N) time via subtree-population DP:
+
+```
+treeBalancedCut(tree, populations, target, tolerance):
+  for each node u in post-order:
+    subtreePop[u] = pop[u] + sum(subtreePop[c] for c in children[u])
+  for each non-root node u:
+    leftSide = subtreePop[u]
+    rightSide = totalPop - leftSide
+    if both within (1 ± tolerance) * target: emit cut at edge u→parent[u]
+  return all valid cuts
+```
+
+If multiple cuts exist, we pick one at random. If none exist, the step is rejected and we re-sample a new spanning tree.
+
+### 4.4 Markov chain mixing
+
+We run the ReCom chain for a fixed burn-in period (default 100 steps for county-level, 600 for tract-level, with graduated tolerance: starts at 10% and tightens to the target tolerance over the burn-in). Each accepted step is a Markov-chain transition; each rejected step is a no-op (the chain stays put).
+
+The chain is well-known to mix slowly in some configurations — the Markov chain has a polynomial mixing time on planar graphs, but the constants can be large. In practice, 100-600 steps produces a partition that's close enough to the stationary distribution for visualization purposes. The published academic standard for litigation-grade analysis is typically 10,000-100,000 ReCom steps producing a large ensemble; that's not what we're doing here. We're producing ONE map per seed, treating the chain output as a neutral sample, not characterizing the full distribution.
+
+Reference for chain mixing analysis: Najt, Solomon, and Wachs (2019), "Complexity and geometry of sampling connected graph partitions," arXiv:1908.08881.
+
+### 4.5 Polish phase
+
+After burn-in, the Markov chain may have produced a partition that's contiguous but only weakly balanced (some districts well over target, others well under). To tighten balance, we run a deterministic polish phase:
+
+```
+polish:
+  while max-deviation > target tolerance:
+    pick the most-deviated district D_max
+    find a single boundary unit move that:
+      - reduces max-deviation
+      - preserves contiguity of source district
+      - the boundary unit comes FROM a less-deviated neighbor
+    apply the move
+    if no improving move exists for any district: bail (local minimum)
+```
+
+This is hill-climbing on max-deviation, not part of the ReCom chain proper. It produces a partition that's both contiguous (by the move's contiguity check) and tightly balanced (by the loop's convergence criterion).
+
+**Implementation detail.** The contiguity check on a candidate move is the most expensive operation (a BFS over the source district). To amortize, we maintain a Uint8Array of "boundary units" — units adjacent to a different district — and only scan these during each polish iteration. This reduces per-iteration cost from O(N × deg) to O(boundary × deg), typically 10-50× speedup at tract granularity.
+
+**Perturb-and-repolish loop.** Polish can get stuck in local minima where no single-unit move improves max-deviation but some districts are still above tolerance. To escape, we wrap polish in an outer loop that, on each stall, runs ~4k extra ReCom steps under a loosened tolerance (2 × target or 10 %, whichever is larger), then re-polishes. Up to 3 such cycles are attempted. The lowest-max-deviation partition seen across cycles is retained as the run's output. Empirically this rescues partitions in states with a single dominant metropolitan county whose first-polish minimum is geometrically near-optimal but still above the ±5 % bound.
+
+### 4.6 Compactness gate
+
+ReCom produces reasonably compact districts as a side effect of the spanning-tree cut step, but occasionally a balanced cut produces a piece that's geometrically thin — a coastal sliver, a snaking string of tracts. To bias the chain toward visually reasonable shapes without disrupting the underlying Markov-chain semantics, we add a **graph isoperimetric filter** on each accepted cut:
+
+```
+For each candidate cut produced by findBalancedCuts:
+  cross_edges = adjacency edges that cross the cut
+  small = min(piece_a.size, piece_b.size)
+  iso_ratio = cross_edges / small
+Filter to cuts with iso_ratio ≤ THRESHOLD.
+If no cut survives, double THRESHOLD and retry — guarantees ergodicity:
+  every balanced cut is reachable, just with biased probability.
+Select uniformly among surviving cuts.
+```
+
+A compact piece in a planar graph has `iso_ratio ~ O(1/√N)`; an elongated strip has `iso_ratio ~ O(1)`. The threshold rejects pathologically elongated pieces while leaving normal cuts untouched. This is the discrete analog of the Polsby–Popper score (`4πA / P²`) appropriate to graph partitioning, and matches the "edge isoperimetric" appendix of DeFord–Duchin–Solomon (2021) in spirit.
+
+**Retry-schedule compactness ladder.** Each state runs up to ten independent retries. The compactness threshold tightens progressively:
+
+| attempt | threshold | intent |
+|--:|--:|---|
+| 0–1 | **0.8** | strict — favors near-circular pieces, the visual default |
+| 2–3 | 1.2 | moderate — accepts most reasonable cuts |
+| 4–6 | 2.0 | loose — last gasp at balance under any geometry |
+| 7+ | ∞ | no compactness filter, balance only |
+
+Because the chain meets the population-balance constraint within the first 2–3 attempts for virtually every state, the strict 0.8 threshold is what produces the visible map in practice; later, looser attempts only kick in for pathologically-shaped states where the strict version can't land ±5 %.
+
+**Partition-level selection.** Across the up-to-ten retries, we don't just pick the lowest-maxDev partition — we pick the partition with the **lowest mean cross-edge count per district** *among those that hit ±5 %*. This explicitly optimizes for visual compactness across retries: when two partitions both meet the population constraint, the one whose districts have fewer "boundary edges" per district (i.e., more compact, less spaghetti) wins.
+
+### 4.7 Convergence and seed sensitivity
+
+Different random seeds produce different valid partitions. They share the high-level structure (which counties belong to which "natural" district cluster) but differ in fine-grained boundary placement. This is an honest reflection of the algorithm's character: there is no single "correct" neutral map — there is a *distribution* of valid maps, and any neutrally-drawn map should be regarded as a sample from that distribution.
+
+For litigation contexts, the standard practice is to run a **large ensemble** (10K-100K ReCom maps) and use the ensemble's properties as a baseline against which proposed maps are compared. See Chen and Rodden (2013), "Unintentional gerrymandering: Political geography and electoral bias in legislatures," *QJPS* 8(3); Herschlag, Ravier, and Mattingly (2017), arXiv:1709.01596; and Cain et al. (2018), "A reasonable bias method for redistricting," arXiv:1804.07003 for typical ensemble methodology.
+
+This dashboard runs ONE map per seed for visualization purposes. Reseed to see how the result varies.
+
+---
+
+## 5. Geometric rendering
+
+### 5.1 District boundary tracing
+
+Each district is a set of unit polygons. To draw its outline, we trace the boundary:
+
+```
+traceBoundary(polygons):
+  collect every directed edge of every ring of every polygon into a map
+  an edge a→b is INTERIOR iff its reverse b→a is also in the map
+    (two same-district polygons share that border, going opposite ways)
+  remaining edges (no reverse) form the outer boundary
+  chain consecutive boundary edges into closed loops via vertex matching
+  return the loops
+```
+
+Floating-point precision is non-trivial here. Topojson's encode/decode cycle introduces ~0.05 SVG-unit drift between adjacent polygons that should share an exact edge. We hash edge endpoints to a 0.05-pixel grid (`COORD_QUANT = 20`) before matching, which is fine enough to keep distinct vertices distinct at tract granularity but coarse enough to merge sub-pixel float drift between counties.
+
+### 5.2 Slab-cut artifact handling
+
+When a metropolitan county is slab-cut into fragments and those fragments end up in different districts, the cut between them appears as a real district boundary edge — but it's actually arbitrary geometry, not real geography. We detect these edges:
+
+```
+findSlabCutEdges(units):
+  group units by parent FIPS (county code)
+  for each FIPS with multiple fragments:
+    collect their directed edges
+    an edge a→b is a SLAB CUT iff its reverse b→a appears in the same FIPS group
+    (two same-county fragments share that boundary)
+  return the set of slab-cut edge keys
+```
+
+The renderer then draws district boundaries in two passes:
+1. Real geographic boundaries (district outline minus slab cuts) at full weight, solid stroke
+2. Slab-cut boundaries at lighter weight with dashed stroke
+
+Visually, the user sees every district's complete outline but can immediately distinguish organic boundaries from population-balance approximations.
+
+### 5.3 Pole of inaccessibility for label placement
+
+District number labels need to sit visibly inside the district. The right point is the **pole of inaccessibility** — the point inside the polygon furthest from the boundary. We use the standard polylabel quad-tree refinement (Vladimir Agafonkin / Mapbox 2016; <https://github.com/mapbox/polylabel>) on the merged district loops:
+
+```
+polylabel(loops, precision):
+  start with state-bbox-sized cell, seed with bbox-center
+  priority queue ordered by potential maximum distance
+  at each step:
+    pop best cell, subdivide into 4 children
+    compute each child's distance from boundary (via point-to-segment)
+    push children with potential > current best
+  return the cell center with maximum distance
+```
+
+The returned distance is a useful measure: if it's smaller than half the label plate height, the label won't fit cleanly inside the district.
+
+### 5.4 Two-tier labeling: inline + external with leader lines
+
+States with many small districts (CA: 52, NY: 26, FL: 28) can't fit every district label inline at its pole. We use a two-tier strategy:
+
+1. **Inline labels** — districts with sufficient pole-clearance get a pill-shaped plate at their pole position. Plates are sized for the digit count (single-digit = circle, multi-digit = pill).
+2. **External labels** — districts that don't fit get a plate in a side column (left or right of the state, depending on which side the district's pole is on), connected to the district's pole-point by a thin leader line ending in a small dot.
+
+A greedy collision-avoidance pass (process by descending clearance) ensures no two inline plates overlap. The viewBox auto-expands horizontally to accommodate external columns.
+
+### 5.5 Color palette
+
+D-share is mapped to color via a three-stop piecewise-RGB scheme:
+
+- Strong R (≤33% D): saturated brick red `rgb(155, 41, 43)`
+- Tossup (~50% D): warm cream `rgb(238, 222, 198)` (matches dashboard background)
+- Strong D (≥67% D): saturated navy `rgb(28, 73, 138)`
+
+Linear interpolation between stops, with a non-linear ease curve `mix' = 1 - (1-mix)^1.6` that pulls competitive districts (52% D, 53% D, etc.) noticeably away from the cream midpoint. This avoids the muddy purple/green that naive linear interpolation produces between red and blue.
+
+The visible range maps `dShare ∈ [0.30, 0.70]` to t ∈ [0, 1]; values outside that range clamp to the endpoints. US districts rarely fall outside that range, but when they do (very safe seats), they pin to the strongest partisan color rather than going darker.
+
+---
+
+## 6. Limitations and honest caveats
+
+1. **Tract-level partisan data is disaggregated, not measured.** No federal authority publishes tract-level election results. The dashboard's tract-level coloring is the parent county's D-share — it captures geographic variation between counties but not WITHIN counties. A heterogeneous county (e.g., a city + its rural exurbs) will show uniform color across its tracts, which understates within-county polarization.
+
+2. **No compactness optimization.** ReCom produces reasonably compact districts as a side effect of spanning-tree cuts (which tend to be short), but doesn't explicitly optimize a compactness metric like Polsby-Popper or Reock. Compactness is sometimes a constitutional or statutory requirement in individual states.
+
+3. **Single chain, not an ensemble.** Each seed produces ONE map, not a distribution. For litigation-grade analysis, run thousands of seeds and treat their statistics as the baseline.
+
+4. **County-level fallback has population-balance artifacts.** When the dashboard uses county + slab-cut fragments (the national view's default substrate), slab cuts in metropolitan counties are visible as approximate boundaries (rendered dashed). At tract granularity (state-detail view) these disappear. The dashboard reports the per-state max deviation in the per-state hover panel and the national worst-state deviation in the top headline so the reader can see when ±5% is or isn't met for any given state.
+
+5. **±5 % is the legal target, not always achieved at county granularity.** *Karcher v. Daggett*, 462 U.S. 725 (1983), held that even small population deviations in congressional districts require justification; modern courts generally accept ±0.5 % to ±1 %, while ±5 % is the looser bound the Department of Justice has flagged as the upper end of "tolerable" *if* justified by traditional districting criteria. Real states routinely draw maps inside ±0.5 %. The dashboard's county-level national view typically lands ~30 of 44 multi-seat states inside ±5 %, with the rest (the metropolitan-heavy states: CA, TX, NY, NJ, OH, PA, IL, MI, NC, NV, AZ, WA) running 6–18 %. **Clicking any state opens the tract-level view, which uses 2020 Decennial Census tracts (~3,500 people each) and consistently achieves ±1 % across all states** — that's the legally-defensible substrate. The county-level view is for whole-country visualization, the tract-level view is for per-state algorithmic detail.
+
+6. **The 2020 Decennial uses differential privacy.** The Census Bureau's TopDown algorithm injects calibrated noise into block-level counts before aggregating to tracts and counties. P1 totals at the tract level are accurate to within a few percent in expectation, but small tracts can have noticeable noise. See Hawes (2020), "Implementing differential privacy: Seven lessons from the 2020 United States Census," *Harvard Data Science Review* 2(2).
+
+7. **Neutral maps are not symmetric maps.** A common misconception is that an unbiased redistricting algorithm should produce seat shares that match popular-vote shares — i.e., 50/50 popular vote → 50/50 seat split. This is not what neutrally-drawn maps produce in the contemporary U.S., and the dashboard's output reflects that. Chen and Rodden (2013), "Unintentional gerrymandering: Political geography and electoral bias in legislatures," *Quarterly Journal of Political Science* 8(3), demonstrated that the geographic distribution of partisans in the modern U.S. produces a structural 2-3 point seat advantage for Republicans even under neutrally-drawn maps, because Democratic voters cluster in dense urban areas where they win districts by lopsided margins (a 30-point "wasted" cushion in a 80/20 district), while Republican voters are more evenly distributed across suburbs and rural areas (winning 55/45 districts where their votes "go further" in seat-conversion terms). This is a property of *geography*, not of any drawing method. ReCom maps reproduce it; so does any contiguous, equal-population partition. A close popular-vote year (2016: 50.4 D / 49.6 R two-party) can therefore land at a seat split anywhere from D+5 to R+15 across the seed distribution, with the median outcome typically R-favored. Treating popular-vote-vs.-seat-share parity as the test of "neutrality" assumes a symmetry that the underlying geography does not provide. See also Goedert (2014), "Gerrymandering or geography? How Democrats won the popular vote but lost the Congress in 2012," *Research & Politics* 1(1), for an analysis of the 2012 House outcome under that framing.
+
+---
+
+## 7. References
+
+- DeFord, Duchin, Solomon (2021). "Recombination: A family of Markov chains for redistricting." *Harvard Data Science Review* 3(1).
+- Najt, Solomon, Wachs (2019). "Complexity and geometry of sampling connected graph partitions." arXiv:1908.08881.
+- Wilson (1996). "Generating random spanning trees more quickly than the cover time." STOC '96.
+- Propp, Wilson (1998). "How to get a perfectly random sample from a generic Markov chain and generate a random spanning tree of a directed graph." *J. Algorithms* 27(2).
+- Chen, Rodden (2013). "Unintentional gerrymandering: Political geography and electoral bias in legislatures." *Quarterly Journal of Political Science* 8(3).
+- Goedert (2014). "Gerrymandering or geography? How Democrats won the popular vote but lost the Congress in 2012." *Research & Politics* 1(1).
+- Bangia, Graves, Herschlag, Kang, Luo, Mattingly, Ravier (2017). "Redistricting: Drawing the Line." arXiv:1704.03360.
+- Herschlag, Ravier, Mattingly (2017). "Evaluating partisan gerrymandering in Wisconsin." arXiv:1709.01596.
+- Cain et al. (2018). "A reasonable bias method for redistricting." arXiv:1804.07003.
+- Hawes (2020). "Implementing differential privacy: Seven lessons from the 2020 United States Census." *Harvard Data Science Review* 2(2).
+- Agafonkin, Vladimir (2016). "polylabel: a fast algorithm for finding the pole of inaccessibility of a polygon." Mapbox.
+- U.S. Census Bureau (2021). "2020 Census Apportionment Results."
+- MIT Election Data and Science Lab. "U.S. President 1976-2024" county-level returns.
+
+## 8. Court cases referenced
+
+- Wesberry v. Sanders, 376 U.S. 1 (1964) — one person, one vote in House districts
+- Karcher v. Daggett, 462 U.S. 725 (1983) — congressional population deviations require justification
+- Common Cause v. Rucho, 318 F. Supp. 3d 777 (M.D.N.C. 2018) — early ReCom-based litigation
+- Rucho v. Common Cause, 588 U.S. 684 (2019) — partisan gerrymandering non-justiciable in federal court

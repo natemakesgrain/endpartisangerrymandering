@@ -1,0 +1,28 @@
+# Netlify config — static deployment of the Next.js build output.
+# The site is fully static; everything runs in the browser.
+
+[build]
+  command   = "npm run build"
+  publish   = "out"
+  # Next.js with `output: 'export'` writes the static site to /out
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Tract data is ~28 MB across 51 files. Cache it aggressively — these files
+# never change after deploy (they're built from 2020 Census shapefiles).
+[[headers]]
+  for = "/data/tracts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Vote files are similarly stable but smaller; same caching policy is fine.
+[[headers]]
+  for = "/data/votes/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/data/populations.json"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
