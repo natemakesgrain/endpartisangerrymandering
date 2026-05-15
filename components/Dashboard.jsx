@@ -134,6 +134,16 @@ const YEAR_CONFIG = {
   yearMeta(key) { return this.years.find((y) => y.key === key); },
 };
 
+// Seeds whose full national result is pre-computed and committed to the
+// repo as a flat map image (/data/seeds/<seed>-2024.jpg) plus a 13-year
+// headline summary (/data/seeds/<seed>-summary.json). When a user lands on
+// one of these at the default year, we render the image instantly and
+// never run the algorithm or download the ≈29 MB of tract geometry — that
+// cold path costs ~28 s of CPU. Any deliberate interaction (a custom seed,
+// or any year change) engages the live engine from then on; switching
+// among the three pre-rendered seeds at the default year stays instant.
+const DEFAULT_SEEDS = new Set([42, 7, 1337]);
+
 // Manual water-gap bridge adjacencies: pairs of parent county FIPS that
 // don't share land borders but are connected by bridges, causeways, or
 // political grouping. These are treated like topojson-derived county
@@ -2394,17 +2404,25 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
   const rPct = totD + totR > 0 ? (100 * totR / (totD + totR)).toFixed(1) : '—';
   const dWon = totD > totR;
 
-  const seats = aggregateNationalSeats(districting, year);
-  const districtingDone = !!districting;
   const districtingActive = !!districtingProgress;
   const yearMeta = YEAR_CONFIG.yearMeta(year);
   const actualHouse = yearMeta?.actualHouse;
   const yearKind = yearMeta?.kind;
 
-  // Compute the worst-state and percentage of states inside ±5 % so the user
-  // can see at a glance how well the algorithm met the legal target.
+  // `seats` (national D/R/competitive) and `popVariance` (worst state +
+  // share of states inside the ±5 % legal bound) come either from the
+  // committed per-seed summary (instant pre-render path — no algorithm
+  // run) or from aggregating the live partitions.
+  let seats = null;
   let popVariance = null;
-  if (districting) {
+  if (districting?.prerendered) {
+    const s = districting.summary ? districting.summary[year] : null;
+    if (s) {
+      seats = { dSeats: s.dSeats, rSeats: s.rSeats, totalSeats: TOTAL_SEATS, competitive: s.competitive };
+      popVariance = { worstDev: s.worstDev, worstCode: s.worstCode, inside: s.inside, total: s.total };
+    }
+  } else if (districting) {
+    seats = aggregateNationalSeats(districting, year);
     let worstDev = 0, worstCode = null, inside = 0, total = 0;
     for (const [code, p] of Object.entries(districting.partitions)) {
       if (!p.partition || p.seats <= 1) continue;
@@ -2415,6 +2433,7 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
     }
     popVariance = { worstDev, worstCode, inside, total };
   }
+  const districtingDone = !!seats;
 
   // Label for the popular-vote cell. Presidential years show the real
   // presidential two-party vote; midterm years show the modeled U.S. House
@@ -2833,6 +2852,67 @@ function StateHoverInfo({ state, units, year, districting }) {
   );
 }
 
+/* ---------- PRE-RENDERED NATIONAL MAP ---------------------------------- */
+// Instant path for a committed default seed at the default year: a flat
+// JPEG of the full national map (rendered offline from the live SVG) under
+// a transparent, pixel-aligned SVG overlay that carries state hover/click.
+// No algorithm runs and no tract geometry is fetched. The image is 2060×1230
+// — exactly 2× the live viewBox (1030×615) — so xMidYMid-meet alignment of
+// the overlay registers on the underlying state shapes precisely.
+function PrerenderedMap({ data, seed, year, hoveredState, setHoveredState, onSelectState }) {
+  const base = (typeof window !== 'undefined' && window.__DATA_BASE_URL__) || '/data/';
+  const imgSrc = `${base}seeds/${seed}-${YEAR_CONFIG.defaultYear}.jpg`;
+  const stateOverlays = useMemo(() => {
+    if (!data) return null;
+    return Object.values(data.stateGeom).map((sg) => (
+      <path
+        key={sg.code}
+        d={sg.pathD}
+        fill={hoveredState === sg.code ? 'rgba(224,159,62,0.18)' : 'transparent'}
+        stroke={hoveredState === sg.code ? '#e09f3e' : 'transparent'}
+        strokeWidth={hoveredState === sg.code ? '1.6' : '0'}
+        strokeLinejoin="round"
+        onMouseEnter={() => setHoveredState(sg.code)}
+        onMouseLeave={() => setHoveredState((s) => (s === sg.code ? null : s))}
+        onClick={() => onSelectState && onSelectState(sg.code)}
+        style={{ cursor: 'pointer' }}
+      />
+    ));
+  }, [data, hoveredState, onSelectState]);
+
+  return (
+    <div style={S.mapWrap}>
+      <div className="r-maphint">↔ Hover for stats · click for state detail</div>
+      <div style={{ position: 'relative', width: '100%', maxWidth: 1400, margin: '0 auto' }}>
+        <img
+          src={imgSrc}
+          alt={`Algorithmically drawn U.S. congressional districts — seed ${seed}, ${YEAR_CONFIG.defaultYear} two-party vote.`}
+          width={2060}
+          height={1230}
+          draggable={false}
+          style={{ display: 'block', width: '100%', height: 'auto' }}
+        />
+        {data && (
+          <svg
+            viewBox="-65 5 1030 615"
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+          >
+            {stateOverlays}
+          </svg>
+        )}
+      </div>
+      {hoveredState && data && data.stateGeom[hoveredState] && (
+        <StateHoverInfo
+          state={data.stateGeom[hoveredState]}
+          units={data.unitsByState[hoveredState] || []}
+          year={year}
+          districting={null}
+        />
+      )}
+    </div>
+  );
+}
+
 /* ---------- MAP SECTION ------------------------------------------------- */
 function MapSection({ data, year, setYear, loadStage, districting, districtingProgress }) {
   const [hoveredState, setHoveredState] = useState(null);
@@ -2894,7 +2974,16 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
           <Legend />
         </div>
       </div>
-      {data ? (
+      {districting?.prerendered ? (
+        <PrerenderedMap
+          data={data}
+          seed={districting.seed}
+          year={year}
+          hoveredState={hoveredState}
+          setHoveredState={setHoveredState}
+          onSelectState={setSelectedState}
+        />
+      ) : data ? (
         <USCountyMap
           data={data}
           year={year}
@@ -3146,7 +3235,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
 
   const seatsD = districts.filter((d) => d.winner === 'D').length;
   const seatsR = districts.filter((d) => d.winner === 'R').length;
-  const maxDev = Math.max(...districts.map((d) => Math.abs(d.dev)));
+  // Empty until a partition exists (e.g. arriving here from the pre-render
+  // path, where this state's tract ReCom is still computing). Guard the
+  // spread so we don't print "-Infinity%".
+  const maxDev = districts.length
+    ? Math.max(...districts.map((d) => Math.abs(d.dev)))
+    : 0;
 
   return (
     <section style={S.mapSection} className="r-mapsection r-pad">
@@ -3464,12 +3558,50 @@ const CACHED_DISTRICTING = new Map(); // key: `${seed}_${tolerance}` → result
 // a headless browser through seeds 42/7/1337 and serializes the result.
 if (typeof window !== 'undefined') window.__CACHED_DISTRICTING__ = CACHED_DISTRICTING;
 
-function useDistricting(data, seed, tolerance = 0.05) {
+// Loads the committed 13-year headline summary for a pre-rendered default
+// seed (/data/seeds/<seed>-summary.json). Returns null until loaded, or if
+// inactive / not a default seed. Cached module-side so re-selecting one of
+// the three default seeds is instant (no refetch).
+const CACHED_SUMMARY = new Map(); // seed → summary object
+function usePrerendered(seed, active) {
+  const [summary, setSummary] = useState(() =>
+    active ? CACHED_SUMMARY.get(seed) || null : null
+  );
+  useEffect(() => {
+    if (!active) { setSummary(null); return; }
+    if (CACHED_SUMMARY.has(seed)) { setSummary(CACHED_SUMMARY.get(seed)); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = (typeof window !== 'undefined' && window.__DATA_BASE_URL__) || '/data/';
+        const r = await fetch(base + 'seeds/' + seed + '-summary.json');
+        if (!r.ok) throw new Error('no summary (' + r.status + ')');
+        const j = await r.json();
+        if (cancelled) return;
+        CACHED_SUMMARY.set(seed, j);
+        setSummary(j);
+      } catch {
+        // No committed summary — caller's prerenderMode will resolve false
+        // on next interaction; until then headline shows a placeholder.
+        if (!cancelled) setSummary(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [seed, active]);
+  return summary;
+}
+
+// `active` is false while the pre-render fast path is showing (a committed
+// default seed at the default year, pre-engagement). The engine — and the
+// ≈29 MB tract download + ~28 s of buildTractUnits/adjacency it triggers —
+// stays completely idle until the user engages.
+function useDistricting(data, seed, tolerance = 0.05, active = true) {
   const key = data ? `${seed}_${tolerance}` : null;
   const [result, setResult] = useState(() => key ? CACHED_DISTRICTING.get(key) || null : null);
   const [progress, setProgress] = useState(null);
 
   useEffect(() => {
+    if (!active) return;
     if (!data || !key) return;
     if (CACHED_DISTRICTING.has(key)) {
       setResult(CACHED_DISTRICTING.get(key));
@@ -3679,7 +3811,7 @@ function useDistricting(data, seed, tolerance = 0.05) {
     })();
 
     return () => { cancelled = true; };
-  }, [key]);
+  }, [key, active]);
 
   return { districting: result, districtingProgress: progress };
 }
@@ -3975,15 +4107,49 @@ export default function USRedistrictingDashboard() {
   const { data, loadStage } = useData();
   const [year, setYear] = useState(YEAR_CONFIG.defaultYear);
   const [seed, setSeed] = useState(42);
-  const { districting, districtingProgress } = useDistricting(data, seed, 0.05);
+  // `engaged` latches true the first time the user does something that
+  // can't be served from a committed image (a custom seed, or any year
+  // change). From then on the live engine drives the page.
+  const [engaged, setEngaged] = useState(false);
+
+  // Pre-render fast path: a committed default seed, at the default year,
+  // before engagement. The image + summary render instantly; the algorithm
+  // and the ≈29 MB / ~28 s tract pipeline are never touched.
+  const prerenderMode =
+    !engaged && DEFAULT_SEEDS.has(seed) && year === YEAR_CONFIG.defaultYear;
+
+  const summary = usePrerendered(seed, prerenderMode);
+  const { districting, districtingProgress } = useDistricting(
+    data, seed, 0.05, !prerenderMode
+  );
+
+  // In prerender mode, hand the children a synthetic districting object so
+  // they branch onto the image/summary path. `partitions: {}` keeps
+  // StateDetailSection safe if a state is clicked (it self-computes that
+  // one state via useStateTractPartition — fast, no national run).
+  const effDistricting = prerenderMode
+    ? { prerendered: true, seed, summary, partitions: {} }
+    : districting;
+
+  const handleSetYear = (y) => {
+    if (y !== YEAR_CONFIG.defaultYear) setEngaged(true);
+    setYear(y);
+  };
+  const handleSetSeed = (s) => {
+    // Switching among the three pre-rendered seeds stays instant; any
+    // other seed engages the live engine.
+    if (!DEFAULT_SEEDS.has(s)) setEngaged(true);
+    setSeed(s);
+  };
+
   return (
     <div style={S.app}>
       <style>{globalCSS}</style>
       <Header />
       <section style={S.headlineSection}>
-        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={districting} districtingProgress={districtingProgress} seed={seed} setSeed={setSeed} />
+        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} seed={seed} setSeed={handleSetSeed} />
       </section>
-      <MapSection data={data} year={year} setYear={setYear} loadStage={loadStage} districting={districting} districtingProgress={districtingProgress} />
+      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={districtingProgress} />
       <Footer />
     </div>
   );
