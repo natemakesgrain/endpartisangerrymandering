@@ -3866,6 +3866,45 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     return acc;
   }, [partition, stateUnits, k]);
 
+  // Robust district-border mesh (topojson-mesh style). Build an UNDIRECTED
+  // segment map over every unit edge, keyed at 0.1-unit precision (so tiny
+  // tessellation mismatches between two units' shared edge still collapse
+  // to one key). A segment is an internal district border iff the units
+  // touching it belong to ≥2 districts. This is winding-INSENSITIVE and
+  // sees both sides, so — unlike per-district edge cancellation — it can
+  // never drop a perimeter side. `borderPath` = all internal borders;
+  // `selBorderPath` = just the selected district's borders.
+  const { borderPath, selBorderPath } = useMemo(() => {
+    if (!partition) return { borderPath: '', selBorderPath: '' };
+    const seg = new Map(); // key → { x1,y1,x2,y2, ds:Set<district> }
+    const r = (v) => Math.round(v * 10) / 10;
+    for (let i = 0; i < stateUnits.length; i++) {
+      const d = partition.assignment[i];
+      if (d < 0) continue;
+      const polys = stateUnits[i].polygons;
+      for (const poly of polys) for (const ring of poly) {
+        for (let j = 0, n = ring.length; j < n; j++) {
+          const A = ring[j], B = ring[(j + 1) % n];
+          const ax = r(A[0]), ay = r(A[1]), bx = r(B[0]), by = r(B[1]);
+          if (ax === bx && ay === by) continue;
+          const lo = (ax < bx || (ax === bx && ay <= by));
+          const key = lo ? `${ax},${ay},${bx},${by}` : `${bx},${by},${ax},${ay}`;
+          let s = seg.get(key);
+          if (!s) { s = { x1: ax, y1: ay, x2: bx, y2: by, ds: new Set() }; seg.set(key, s); }
+          s.ds.add(d);
+        }
+      }
+    }
+    let border = '', selB = '';
+    for (const s of seg.values()) {
+      if (s.ds.size < 2) continue; // interior of one district, or exterior
+      const seg2 = `M${s.x1},${s.y1}L${s.x2},${s.y2}`;
+      border += seg2;
+      if (selDist != null && s.ds.has(selDist)) selB += seg2;
+    }
+    return { borderPath: border, selBorderPath: selB };
+  }, [partition, stateUnits, selDist]);
+
   // District boundary paths + label anchors. Refinements applied here:
   //  - Slab-cut split: we precompute the set of edges that lie on cut lines
   //    between same-FIPS fragments. The trace closes the full loop (needed
@@ -4201,44 +4240,30 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 strokeLinecap="round"
               />
             ) : null)}
-            {/* District boundary always gets a white casing UNDER a bold
-                dark line so it reads clearly over the colour mosaic — the
-                single thin black line was getting lost (user feedback),
-                in BOTH the precinct and the county/tract views. */}
-            {districtPaths.map((dp) => dp.pathD ? (
-              <path
-                key={`${dp.d}-case`}
-                d={dp.pathD}
-                fill="none"
-                stroke="#fdfaf2"
+            {/* District borders: ONE robust mesh path (undirected segment
+                map — can't drop a side), white casing under a bold dark
+                line so it reads over the colour mosaic. */}
+            {borderPath && (
+              <path d={borderPath} fill="none" stroke="#fdfaf2"
                 strokeWidth={usePrecinct ? Math.max(1.5, (x1 - x0) / 150) : Math.max(1.2, (x1 - x0) / 210)}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                opacity={0.9}
-              />
-            ) : null)}
-            {districtPaths.map((dp) => dp.pathD ? (
-              <path
-                key={dp.d}
-                d={dp.pathD}
-                fill="none"
-                stroke="#1a1a14"
+                strokeLinejoin="round" strokeLinecap="round" opacity={0.9} pointerEvents="none" />
+            )}
+            {borderPath && (
+              <path d={borderPath} fill="none" stroke="#1a1a14"
                 strokeWidth={usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.6, (x1 - x0) / 320)}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ) : null)}
-            {/* Selected-district highlight — gold tint over its unit union
-                (works even when the traced boundary was sliver-filtered). */}
+                strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
+            )}
+            {/* Selected district: gold tint over its unit union + a bold
+                gold re-stroke of just its borders. */}
             {selDist != null && districtHit[selDist] ? (
               <path key={`sel-${selDist}`} d={districtHit[selDist]}
-                fill="rgba(224,159,62,0.30)" stroke="none" pointerEvents="none" />
+                fill="rgba(224,159,62,0.32)" stroke="none" pointerEvents="none" />
             ) : null}
-            {selDist != null && districtPaths.filter((dp) => dp.d === selDist).map((dp) => dp.pathD ? (
-              <path key={`seledge-${dp.d}`} d={dp.pathD} fill="none"
-                stroke="#e09f3e" strokeWidth={Math.max(1.6, (x1 - x0) / 130)}
+            {selBorderPath && (
+              <path d={selBorderPath} fill="none" stroke="#e09f3e"
+                strokeWidth={Math.max(1.6, (x1 - x0) / 130)}
                 strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
-            ) : null)}
+            )}
             {/* Transparent per-district hit layer (unit union → every
                 district clickable, incl. 5 & 8). */}
             {districtHit.map((d, di) => d ? (
