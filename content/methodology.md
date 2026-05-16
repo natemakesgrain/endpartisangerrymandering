@@ -9,8 +9,8 @@ This document explains how the dashboard generates congressional district maps f
 **What this dashboard delivers.** For every U.S. presidential and midterm election cycle from 2000 through 2024, the dashboard produces a neutrally-drawn 435-seat congressional map for all 50 states, with the following verified properties:
 
 - **44 of 44 multi-seat states** land inside the ±5 % population-deviation bound courts apply to congressional districts (worst-case state typically 1–3 %, far inside the legal limit).
-- **Districts are visibly compact** — a graph-isoperimetric gate on every accepted spanning-tree cut rejects pathologically elongated pieces; among multi-seed retries that meet ±5 %, the partition with the lowest mean cross-edge count per district is selected, optimizing explicitly for shape.
-- **Every map is bit-for-bit reproducible** from a public seed. Anyone with the seed, the census-tract geography, and the open-source reference code can regenerate the same map. No party can game the result without changing the seed protocol itself, which is designed (see legislation Part I, Sec. 4(b)(2)) to make pre-commitment infeasible.
+- **Districts are visibly compact.** Under the shortest-splitline default, compactness *is* the objective function — every cut is the shortest available straight line. Under ReCom, a graph-isoperimetric gate on every accepted spanning-tree cut rejects pathologically elongated pieces, and among multi-seed retries that meet ±5 % the partition with the lowest mean cross-edge count per district is selected, optimizing explicitly for shape.
+- **Every map is bit-for-bit reproducible.** The default shortest-splitline map needs no seed at all — the geography and the open-source reference code fully determine it. ReCom maps are reproducible from a public seed: anyone with the seed, the census-tract geography, and the reference code regenerates the same map, and no party can game a ReCom result without changing the seed protocol itself, which is designed (legislation Part I, Sec. 4(b)(2)) to make pre-commitment infeasible.
 - **No partisan or incumbency data is consumed** at any step. The algorithm sees only census-block / tract geography, population, and adjacency.
 - **~100–130 competitive districts per cycle** (|margin| ≤ 10 percentage points) under neutral procedure, versus 37 (2024) and 71 (2022) under the actually-enacted post-2020 House maps. Across all 13 cycles in the dashboard, real maps produced 23–89 competitive seats; the algorithm produces ~100–130 every time. The contrast is what the dashboard exists to display.
 
@@ -24,7 +24,7 @@ The U.S. Constitution requires the 435 House seats to be apportioned among the s
 
 The structural costs of gerrymandering are well-documented: (a) suppression of competitive races (the U.S. House had only 37 districts decided within a 10-point margin in 2024, against ~130 in neutrally-drawn algorithmic ensembles on the same partisan geography); (b) distortion of statewide outcomes (the party with the brush draws an in-built seat advantage that can flip control of Congress on identical popular votes); and (c) the resulting erosion of representative accountability — members elected from safe districts have no electoral incentive to attend to the median voter in their district, because the median voter cannot defeat them.
 
-This dashboard generates maps **algorithmically**, with no input from political considerations. The same code, given the same random seed, produces the same map for any state every time. Different seeds produce different valid maps, sampling from the space of all balanced contiguous partitions. The intent is to show what neutrally-drawn maps look like, as a baseline for evaluating real maps.
+This dashboard generates maps **algorithmically**, with no input from political considerations. The default method — shortest-splitline (§4.8) — is fully deterministic: the same code produces the same single map for a state every time, with **no seed at all**. The alternative method — ReCom (§4.1–4.7) — is a sampler: the same code given the same random seed produces the same map, while different seeds produce different valid maps drawn from the space of all balanced contiguous partitions. Either way the intent is identical: show what neutrally-drawn maps look like, as a baseline for evaluating real maps.
 
 ---
 
@@ -123,7 +123,14 @@ The 0.45 coefficient is the discrete-tract analog of the log-density-to-logit-D 
 
 ---
 
-## 4. The partitioning algorithm: ReCom
+## 4. The partitioning algorithms
+
+The dashboard ships **two** neutral partitioners, selectable in the model picker. Both consume only geography, population, and adjacency — no partisan or incumbency data:
+
+- **Shortest-splitline (the default).** A fully deterministic recursive bisection that cuts the state into equal-population halves with the geometrically shortest available straight line, recursing until each piece holds one seat. A state and its seat count determine exactly one map — no random seed. Specified in §4.8.
+- **ReCom (Recombination).** A Markov-chain sampler over the space of balanced contiguous partitions; the same seed reproduces a map, different seeds produce different valid maps. Built up in §4.1–4.7.
+
+§4.9 compares the two head-to-head. ReCom is presented first only because it is the more intricate method and §4.1–4.7 develop it in detail; the shortest-splitline *default* is specified in §4.8 and presupposes nothing from the ReCom subsections.
 
 ReCom (short for **Re**combination) is a Markov chain Monte Carlo method for sampling from the space of valid balanced contiguous partitions of a graph. It was introduced in DeFord, Duchin, and Solomon (2021), "Recombination: A family of Markov chains for redistricting," *Harvard Data Science Review* 3(1) [<https://hdsr.mitpress.mit.edu/pub/1ds8ptxu>]. ReCom is widely used in academic and litigation-related redistricting analysis: it appears in Mattingly's North Carolina ensemble work (Bangia, Graves, Herschlag, Kang, Luo, Mattingly, Ravier 2017; *cf.* Common Cause v. Rucho, 318 F. Supp. 3d 777, M.D.N.C. 2018) and in MGGG's expert reports across multiple state redistricting cases.
 
@@ -285,6 +292,60 @@ For litigation contexts, the standard practice is to run a **large ensemble** (1
 
 This dashboard runs ONE map per seed for visualization purposes. Reseed to see how the result varies.
 
+### 4.8 The shortest-splitline algorithm (the default)
+
+Shortest-splitline is a fully deterministic recursive-bisection method, due to Warren D. Smith (rangevoting.org, "Gerrymandering and a cure: the shortest-splitline algorithm," 2007). It is the dashboard's **default** partitioner. There is no random seed and no Markov chain: a state and its seat count determine exactly one map.
+
+```
+splitline(members, K, firstDistrictId):
+  if K == 1:
+    assign every unit in `members` to firstDistrictId; return
+  A = floor(K / 2);  B = K - A
+  targetA = (total population of members) × A / K
+  hull = convex hull of member centroids
+  best = none
+  for theta in 120 evenly-spaced orientations over [0, pi):
+    n = (cos theta, sin theta)
+    sort members by projection  n · centroid
+    walk the sorted list, accumulating population, until it reaches targetA
+    place the cut line at the midpoint between the two straddling projections
+    L = length of the chord this line cuts across `hull`
+    keep (theta, cut) if L is the shortest seen
+      tie-break: prefer the most north–south line, then the westernmost cut
+  aSide = members below the chosen cut   → gets A seats
+  bSide = members above the chosen cut   → gets B seats
+  splitline(aSide, A, firstDistrictId)
+  splitline(bSide, B, firstDistrictId + A)
+```
+
+Properties:
+
+- **Equal population by construction.** The cut is the population-A/K quantile of the members along the chosen axis, so each recursive half is population-balanced up to the indivisibility of a single unit. At tract/precinct granularity the residual imbalance is negligible — well inside ±1 % — with **no polish phase, no retries, no multi-seed selection**.
+- **Compactness is the objective, not a by-product.** Each cut is the *shortest straight line* that splits the piece in the required population ratio, minimised over 120 orientations against the convex hull. The optimisation target is literally boundary length — the continuous-geometry compactness notion that ReCom only approximates with a graph proxy (§4.6).
+- **Deterministic and unique.** No RNG, no seed, no burn-in, no retry ladder — the recursion is a pure function of geography and seat count. This is exactly why the dashboard hides the Reseed control when shortest-splitline is selected: there is nothing to reseed.
+- **Contiguity is _not_ guaranteed.** A straight cut through a non-convex or archipelagic state can leave a district in disconnected pieces. A deterministic post-pass (`enforceContiguity`) reassigns only *small* stray components — specks below ≈0.06 % of the unit count — to the adjacent district they border most; large, legitimately-disconnected pieces are deliberately left intact rather than distorting the exact equipopulation cut to glue them. ReCom, by contrast, guarantees contiguity by construction (it cuts a spanning tree of the *adjacency* graph). This is the principal honest cost of running shortest-splitline as the default.
+- **The cut is geography-blind.** It is a literal straight line on projected unit centroids. It does not bend around a river, a county line, or a metropolitan boundary; a city is sliced cleanly in two if the population quantile falls there. This is a sharper form of the community-of-interest cost in §6.7 — shortest-splitline has *zero* slack to keep a community whole, whereas a ReCom spanning-tree cut at least follows real adjacency edges.
+
+The 120-orientation sweep and the convex-hull chord length are discretisation choices; finer angle steps shift individual boundaries marginally but not the high-level structure.
+
+### 4.9 ReCom vs. shortest-splitline: advantages and disadvantages
+
+Both methods are neutral (no partisan input) and both are shipped in the dashboard; the model picker switches between them. They encode different definitions of "fair," and the trade-offs are explicit:
+
+| Dimension | Shortest-splitline (default) | ReCom |
+|---|---|---|
+| Determinism | One state → exactly one map. No seed. | Stochastic; one map *per seed*. |
+| Reproducibility / gaming-resistance | Maximal — geography alone fixes the map; nothing to pre-commit or game. | Reproducible from a public seed; requires the seed-precommitment protocol (legislation Part I §4(b)(2)) to prevent gaming. |
+| Population balance | Exact by construction (≤ one unit); no polish needed. | Soft ±5 % target, met via polish + multi-seed retry. |
+| Compactness | *Is* the objective — shortest straight cut, true geometry. | Emergent; biased compact by a graph-isoperimetric gate (§4.6). |
+| Contiguity | **Not guaranteed** — straight cuts can disconnect a district; only small specks are repaired. | **Guaranteed by construction** — cuts a spanning tree of the adjacency graph. |
+| Community of interest | Zero slack — a straight line ignores all geography. | Some slack — cuts ride the adjacency graph, so rivers/county lines can fall on real edges. |
+| Speed | Instant (pure recursion, no chain). | Burn-in + retries; tens of seconds for 50 states. |
+| Distribution / litigation use | None — a single map; cannot answer "is the enacted map an outlier?" | Reseed → ensemble → outlier analysis (the MGGG/Mattingly litigation standard; §4.7, §6.4). |
+| Auditability | A child can verify it: "shortest straight line, equal halves, repeat." | Requires understanding Markov-chain mixing and the seed protocol. |
+
+**Which is the better neutral baseline?** Shortest-splitline is the stronger *anti-gerrymandering primitive*: it cannot be gamed without changing the published rule itself, it needs no seed-governance machinery, and its compactness is provable rather than emergent — which is why it is the dashboard default. Its costs are real and disclosed: it can produce a non-contiguous district, and it will bisect a community without hesitation. ReCom is the stronger *scientific instrument*: contiguity is guaranteed, its cuts respect real adjacency, and — decisively — reseeding produces an *ensemble*, which is the only way to ask whether a real enacted map is a statistical outlier. Neither is "more neutral"; they make different, fully-stated trade-offs, and the dashboard lets the reader switch between them and see both. (See §6.6: under *either* method, *neutral* is not the same as *proportional*.)
+
 ---
 
 ## 5. Geometric rendering
@@ -421,6 +482,7 @@ Some states have geometric-compactness statutes that use Polsby–Popper, Reock,
 
 ## 7. References
 
+- Smith, Warren D. (2007). "Gerrymandering and a cure: the shortest-splitline algorithm." rangevoting.org/GerryExamples.html (shortest-splitline; the dashboard default).
 - DeFord, Duchin, Solomon (2021). "Recombination: A family of Markov chains for redistricting." *Harvard Data Science Review* 3(1).
 - Najt, Solomon, Wachs (2019). "Complexity and geometry of sampling connected graph partitions." arXiv:1908.08881.
 - Wilson (1996). "Generating random spanning trees more quickly than the cover time." STOC '96.
