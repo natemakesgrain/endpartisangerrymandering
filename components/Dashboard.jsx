@@ -3733,6 +3733,71 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     })).sort((a, b) => a.dShare - b.dShare); // sort by D-share for the panel
   }, [partition, stateUnits, year, k]);
 
+  // Click-to-inspect: which district is selected for the insights card.
+  const [selDist, setSelDist] = useState(null);
+  useEffect(() => { setSelDist(null); }, [stateCode, substrate, model]);
+
+  // County → set of districts (to flag split counties — the cohesion lens).
+  const countySplits = useMemo(() => {
+    if (!partition) return new Map();
+    const m = new Map();
+    for (let i = 0; i < stateUnits.length; i++) {
+      const d = partition.assignment[i]; if (d < 0) continue;
+      const f = stateUnits[i].fips || '?';
+      let s = m.get(f); if (!s) m.set(f, (s = new Set()));
+      s.add(d);
+    }
+    return m;
+  }, [partition, stateUnits]);
+
+  // Full insight for the selected district: multi-cycle vote profile,
+  // county composition (with split flags), unit count, population.
+  const insight = useMemo(() => {
+    if (selDist == null || !partition) return null;
+    const yrs = usePrecinct ? PRECINCT_YEARS : YEAR_CONFIG.allYears;
+    const members = [];
+    const byCounty = new Map();
+    let pop = 0;
+    for (let i = 0; i < stateUnits.length; i++) {
+      if (partition.assignment[i] !== selDist) continue;
+      members.push(i);
+      const u = stateUnits[i];
+      pop += u.pop || 0;
+      const f = u.fips || '?';
+      byCounty.set(f, (byCounty.get(f) || 0) + (u.pop || 0));
+    }
+    const cycles = yrs.map((yr) => {
+      let d = 0, r = 0;
+      for (const i of members) {
+        const v = stateUnits[i].votes[yr];
+        if (v) { d += v.d; r += v.r; }
+      }
+      const tp = d + r;
+      const ds = tp > 0 ? d / tp : null;
+      return {
+        yr, d, r,
+        dShare: ds,
+        margin: ds == null ? null : (ds - 0.5) * 2 * 100, // +D / −R, pts
+        winner: ds == null ? '—' : ds >= 0.5 ? 'D' : 'R',
+      };
+    });
+    const counties = [...byCounty.entries()]
+      .map(([f, p]) => ({
+        fips: f, pop: p,
+        share: pop > 0 ? p / pop : 0,
+        split: (countySplits.get(f) || new Set()).size > 1,
+      }))
+      .sort((a, b) => b.pop - a.pop);
+    const totalPop = stateUnits.reduce((s, u) => s + u.pop, 0);
+    const tgt = totalPop / k;
+    return {
+      d: selDist, pop, unitCount: members.length,
+      dev: (pop - tgt) / tgt,
+      cycles, counties,
+      countySplitCount: counties.filter((c) => c.split).length,
+    };
+  }, [selDist, partition, stateUnits, usePrecinct, k, countySplits]);
+
   // District boundary paths + label anchors. Refinements applied here:
   //  - Slab-cut split: we precompute the set of edges that lie on cut lines
   //    between same-FIPS fragments. The trace closes the full loop (needed
@@ -4098,6 +4163,20 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 strokeLinecap="round"
               />
             ) : null)}
+            {/* Selected-district highlight (accent fill + bold gold edge). */}
+            {selDist != null && districtPaths.filter((dp) => dp.d === selDist).map((dp) => dp.pathD ? (
+              <path key={`sel-${dp.d}`} d={dp.pathD} fill="rgba(224,159,62,0.22)"
+                stroke="#e09f3e" strokeWidth={Math.max(1.4, (x1 - x0) / 150)}
+                strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
+            ) : null)}
+            {/* Transparent per-district hit layer — click to inspect. */}
+            {districtPaths.map((dp) => dp.pathD ? (
+              <path key={`hit-${dp.d}`} d={dp.pathD} fill="transparent"
+                stroke="transparent" style={{ cursor: 'pointer' }}
+                onClick={() => setSelDist((p) => (p === dp.d ? null : dp.d))}>
+                <title>District {dp.d + 1} — click for insights</title>
+              </path>
+            ) : null)}
             {/* Layer 3: state outline as bold WHITE (with thin dark edge below for definition) */}
             <path d={sg.pathD} fill="none" stroke="#1a1a14" strokeWidth={Math.max(1.2, (x1 - x0) / 140)} strokeLinejoin="round" />
             <path d={sg.pathD} fill="none" stroke="#fdfaf2" strokeWidth={Math.max(0.9, (x1 - x0) / 200)} strokeLinejoin="round" />
@@ -4179,6 +4258,53 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               <span style={{ color: seatsR > seatsD ? '#b3433b' : 'rgba(26,26,20,0.4)', fontWeight: seatsR > seatsD ? 600 : 400 }}>R {seatsR}</span>
             </div>
           </div>
+          {insight && (
+            <div style={{ borderBottom: '1px solid rgba(26,26,20,0.12)', paddingBottom: 14, marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <div style={S.tickerKicker}>DISTRICT {insight.d + 1} · INSIGHTS</div>
+                <button onClick={() => setSelDist(null)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(26,26,20,0.5)', lineHeight: 1, padding: 2 }}
+                  title="Close">✕</button>
+              </div>
+              <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11, marginTop: 8, lineHeight: 1.6, color: '#1a1a14' }}>
+                <div>
+                  <strong>{(insight.pop / 1000).toFixed(0)}K</strong> people ·{' '}
+                  {insight.unitCount.toLocaleString()} {usePrecinct ? 'precincts' : useTracts ? 'tracts' : 'county units'} ·{' '}
+                  pop dev <span style={{ color: Math.abs(insight.dev) <= 0.05 ? 'rgba(26,26,20,0.6)' : '#c44536' }}>
+                    {insight.dev >= 0 ? '+' : ''}{(insight.dev * 100).toFixed(1)}%</span>
+                </div>
+                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,26,20,0.55)' }}>
+                  TWO-PARTY RESULT BY CYCLE
+                </div>
+                {insight.cycles.filter((c) => c.dShare != null).map((c) => (
+                  <div key={c.yr} style={{ display: 'flex', gap: 8 }}>
+                    <span style={{ width: 34, color: c.yr === year ? '#1a1a14' : 'rgba(26,26,20,0.55)', fontWeight: c.yr === year ? 700 : 400 }}>{c.yr}</span>
+                    <span style={{ width: 64, color: c.winner === 'D' ? '#2c5d8f' : '#b3433b', fontWeight: 600 }}>
+                      {c.winner} {(c.dShare * 100).toFixed(1)}%
+                    </span>
+                    <span style={{ color: 'rgba(26,26,20,0.55)' }}>
+                      {c.winner}+{Math.abs(c.margin).toFixed(1)}{Math.abs(c.margin) <= 10 ? ' · competitive' : ''}
+                    </span>
+                  </div>
+                ))}
+                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,26,20,0.55)' }}>
+                  COUNTY FIPS COMPOSITION ({insight.counties.length}{insight.countySplitCount ? ` · ${insight.countySplitCount} split across districts` : ' · all whole'})
+                </div>
+                {insight.counties.slice(0, 8).map((c) => (
+                  <div key={c.fips} style={{ display: 'flex', gap: 8 }}>
+                    <span style={{ width: 54 }}>{c.fips}</span>
+                    <span style={{ width: 40, textAlign: 'right' }}>{(c.share * 100).toFixed(0)}%</span>
+                    <span style={{ color: 'rgba(26,26,20,0.55)' }}>
+                      {(c.pop / 1000).toFixed(0)}K{c.split ? ' · split ⚠' : ''}
+                    </span>
+                  </div>
+                ))}
+                {insight.counties.length > 8 && (
+                  <div style={{ color: 'rgba(26,26,20,0.5)' }}>+{insight.counties.length - 8} more counties…</div>
+                )}
+              </div>
+            </div>
+          )}
           <div style={S.detailPanelList}>
             <div style={S.detailListHeader}>
               <span style={{ flex: '0 0 28px' }}>#</span>
@@ -4187,7 +4313,15 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               <span style={{ flex: '0 0 50px', textAlign: 'right' }}>dev</span>
             </div>
             {districts.map((dist, i) => (
-              <div key={dist.d} style={S.detailRow}>
+              <div key={dist.d}
+                onClick={() => setSelDist((p) => (p === dist.d ? null : dist.d))}
+                title={`District ${dist.d + 1} — click for insights`}
+                style={{
+                  ...S.detailRow,
+                  cursor: 'pointer',
+                  background: selDist === dist.d ? 'rgba(224,159,62,0.16)' : 'transparent',
+                  boxShadow: selDist === dist.d ? 'inset 3px 0 0 #e09f3e' : 'none',
+                }}>
                 <span style={{ flex: '0 0 28px', fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: 'rgba(26,26,20,0.55)' }}>
                   {dist.d + 1}
                 </span>
