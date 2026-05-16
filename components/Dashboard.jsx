@@ -1543,6 +1543,9 @@ function buildPrecinctUnits(pj, stateCode) {
       pop: p.pop || 0,
       polygons: polys,
       votes,
+      // dm = [White, Black, Hispanic, Asian, Native, Pacific, VAP] (2020
+      // census P.L. 94-171); absent on the model/tract substrate.
+      dem: Array.isArray(p.dm) ? p.dm : null,
       parentDShare: {},
       centroid: multiPolygonCentroid(polys),
       bbox: bboxOfPolygons(polys),
@@ -3757,6 +3760,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     const yrs = usePrecinct ? PRECINCT_YEARS : YEAR_CONFIG.allYears;
     const members = [];
     const byCounty = new Map();
+    const demAcc = [0, 0, 0, 0, 0, 0, 0]; // White,Black,Hisp,Asian,Native,Pac,VAP
     let pop = 0;
     for (let i = 0; i < stateUnits.length; i++) {
       if (partition.assignment[i] !== selDist) continue;
@@ -3765,6 +3769,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       pop += u.pop || 0;
       const f = u.fips || '?';
       byCounty.set(f, (byCounty.get(f) || 0) + (u.pop || 0));
+      if (u.dem) for (let z = 0; z < 7; z++) demAcc[z] += u.dem[z] || 0;
     }
     const cycles = yrs.map((yr) => {
       let d = 0, r = 0;
@@ -3790,13 +3795,39 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       .sort((a, b) => b.pop - a.pop);
     const totalPop = stateUnits.reduce((s, u) => s + u.pop, 0);
     const tgt = totalPop / k;
+    const demTot = demAcc[0] + demAcc[1] + demAcc[2] + demAcc[3] + demAcc[4] + demAcc[5];
+    const dem = demTot > 0 ? {
+      rows: [
+        ['White', demAcc[0]], ['Black', demAcc[1]], ['Hispanic', demAcc[2]],
+        ['Asian', demAcc[3]], ['Native', demAcc[4]], ['Pac. Is.', demAcc[5]],
+      ].map(([label, c]) => ({ label, c, share: c / demTot }))
+        .sort((a, b) => b.c - a.c).filter((x) => x.c > 0),
+      vapShare: pop > 0 ? demAcc[6] / pop : null,
+    } : null;
     return {
       d: selDist, pop, unitCount: members.length,
       dev: (pop - tgt) / tgt,
-      cycles, counties,
+      cycles, counties, dem,
       countySplitCount: counties.filter((c) => c.split).length,
     };
   }, [selDist, partition, stateUnits, usePrecinct, k, countySplits]);
+
+  // Per-district hit/fill region = the UNION of its units' polygons
+  // (concatenated path data). Unlike the traced boundary, this exists for
+  // EVERY district — including big rural ones whose boundary loops get
+  // filtered by the sliver floor (districts 5 & 8 in MN) — so every
+  // district is clickable + highlightable on the map.
+  const districtHit = useMemo(() => {
+    if (!partition) return [];
+    const acc = new Array(k).fill('');
+    for (let i = 0; i < stateUnits.length; i++) {
+      const d = partition.assignment[i];
+      if (d < 0 || d >= k) continue;
+      const pd = stateUnits[i].pathD;
+      if (pd) acc[d] += pd;
+    }
+    return acc;
+  }, [partition, stateUnits, k]);
 
   // District boundary paths + label anchors. Refinements applied here:
   //  - Slab-cut split: we precompute the set of edges that lie on cut lines
@@ -4163,18 +4194,24 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 strokeLinecap="round"
               />
             ) : null)}
-            {/* Selected-district highlight (accent fill + bold gold edge). */}
+            {/* Selected-district highlight — gold tint over its unit union
+                (works even when the traced boundary was sliver-filtered). */}
+            {selDist != null && districtHit[selDist] ? (
+              <path key={`sel-${selDist}`} d={districtHit[selDist]}
+                fill="rgba(224,159,62,0.30)" stroke="none" pointerEvents="none" />
+            ) : null}
             {selDist != null && districtPaths.filter((dp) => dp.d === selDist).map((dp) => dp.pathD ? (
-              <path key={`sel-${dp.d}`} d={dp.pathD} fill="rgba(224,159,62,0.22)"
-                stroke="#e09f3e" strokeWidth={Math.max(1.4, (x1 - x0) / 150)}
+              <path key={`seledge-${dp.d}`} d={dp.pathD} fill="none"
+                stroke="#e09f3e" strokeWidth={Math.max(1.6, (x1 - x0) / 130)}
                 strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
             ) : null)}
-            {/* Transparent per-district hit layer — click to inspect. */}
-            {districtPaths.map((dp) => dp.pathD ? (
-              <path key={`hit-${dp.d}`} d={dp.pathD} fill="transparent"
-                stroke="transparent" style={{ cursor: 'pointer' }}
-                onClick={() => setSelDist((p) => (p === dp.d ? null : dp.d))}>
-                <title>District {dp.d + 1} — click for insights</title>
+            {/* Transparent per-district hit layer (unit union → every
+                district clickable, incl. 5 & 8). */}
+            {districtHit.map((d, di) => d ? (
+              <path key={`hit-${di}`} d={d} fill="transparent"
+                stroke="transparent" fillRule="nonzero" style={{ cursor: 'pointer' }}
+                onClick={() => setSelDist((p) => (p === di ? null : di))}>
+                <title>District {di + 1} — click for insights</title>
               </path>
             ) : null)}
             {/* Layer 3: state outline as bold WHITE (with thin dark edge below for definition) */}
@@ -4287,6 +4324,27 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                     </span>
                   </div>
                 ))}
+                {insight.dem && (
+                  <>
+                    <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,26,20,0.55)' }}>
+                      DEMOGRAPHICS · 2020 CENSUS
+                    </div>
+                    {insight.dem.rows.map((rw) => (
+                      <div key={rw.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 60 }}>{rw.label}</span>
+                        <span style={{ width: 36, textAlign: 'right' }}>{(rw.share * 100).toFixed(1)}%</span>
+                        <span style={{ flex: 1, height: 7, background: 'rgba(26,26,20,0.08)' }}>
+                          <span style={{ display: 'block', height: '100%', width: `${Math.min(100, rw.share * 100)}%`, background: '#7a8a9a' }} />
+                        </span>
+                      </div>
+                    ))}
+                    {insight.dem.vapShare != null && (
+                      <div style={{ color: 'rgba(26,26,20,0.55)', marginTop: 2 }}>
+                        voting-age (18+): {(insight.dem.vapShare * 100).toFixed(1)}% of pop
+                      </div>
+                    )}
+                  </>
+                )}
                 <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,26,20,0.55)' }}>
                   COUNTY FIPS COMPOSITION ({insight.counties.length}{insight.countySplitCount ? ` · ${insight.countySplitCount} split across districts` : ' · all whole'})
                 </div>

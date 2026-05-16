@@ -114,6 +114,13 @@ async function buildState(st) {
     const ds = f.properties.datasets || {};
     const id = String(f.properties.id);
     const pop = Math.round((ds.T_20_CENS?.Total) ?? (ds.T_20_ACS?.Total) ?? (ds.T_10_CENS?.Total) ?? 0);
+    // 2020-census demographics (P.L. 94-171): race totals + voting-age
+    // population. dm = [White, Black, Hispanic, Asian, Native, Pacific,
+    // VAP_total]. (DRA's vtd_data has no gender/age-bracket fields — only
+    // total vs voting-age; that's the demographic ceiling of this source.)
+    const C = ds.T_20_CENS || {}, VAP = ds.V_20_VAP || {};
+    const dm = [C.White, C.Black, C.Hispanic, C.Asian, C.Native, C.Pacific, VAP.Total]
+      .map((x) => Math.round(x || 0));
     const v = {};
     let anyVotes = false;
     for (const y of PRES_YEARS) {
@@ -140,7 +147,7 @@ async function buildState(st) {
       }
       if (rings.length) outPolys.push(rings);
     }
-    meta.set(id, { pop, v });
+    meta.set(id, { pop, v, dm });
     if (sc) cxy.set(id, [sx / sc, sy / sc]);
     if (outPolys.length) {
       inFeatures.push({
@@ -207,7 +214,7 @@ async function buildState(st) {
       if (y < minY) minY = y; if (y > maxY) maxY = y;
     }
     idIdx.set(id, precincts.length);
-    precincts.push({ id, pop: m.pop, v: m.v, polys });
+    precincts.push({ id, pop: m.pop, v: m.v, dm: m.dm, polys });
   }
   // No-drop safety: any voted precinct mapshaper dropped → centroid square.
   for (const [id, m] of meta) {
@@ -215,7 +222,7 @@ async function buildState(st) {
     const c = cxy.get(id); if (!c) continue;
     const cx = q(c[0]), cy = q(c[1]), e = 0.03;
     idIdx.set(id, precincts.length);
-    precincts.push({ id, pop: m.pop, v: m.v,
+    precincts.push({ id, pop: m.pop, v: m.v, dm: m.dm,
       polys: [[[[cx - e, cy - e], [cx + e, cy - e], [cx + e, cy + e], [cx - e, cy + e], [cx - e, cy - e]]]] });
   }
 
@@ -374,7 +381,7 @@ async function buildState(st) {
     stateCode: st, fips, years: PRES_YEARS, seats,
     bbox: [minX, minY, maxX, maxY].map((x) => +x.toFixed(2)),
     n: precincts.length,
-    precincts: precincts.map((p) => ({ id: p.id, pop: p.pop, v: p.v, polys: p.polys })),
+    precincts: precincts.map((p) => ({ id: p.id, pop: p.pop, v: p.v, dm: p.dm, polys: p.polys })),
     adjacency: adjArr,
     baked,
   };
