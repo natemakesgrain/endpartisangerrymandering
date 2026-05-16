@@ -1452,7 +1452,7 @@ function useStateTractData(stateCode, data) {
 // data so the UI stays interactive.
 const CACHED_TRACT_PARTITIONS = new Map(); // key: stateCode+'-'+seed+'-'+k → partition
 
-function useStateTractPartition(stateCode, data, seats, baseSeed) {
+function useStateTractPartition(stateCode, data, seats, baseSeed, model = 'recom') {
   const { tractData, stage: dataStage, error: dataError } = useStateTractData(stateCode, data);
   const [partition, setPartition] = useState(null);
   const [stage, setStage] = useState('idle');
@@ -1467,7 +1467,7 @@ function useStateTractPartition(stateCode, data, seats, baseSeed) {
     if (dataStage !== 'ready' || !tractData) return;
 
     const seed = baseSeed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1);
-    const cacheKey = `${stateCode}-${seed}-${seats}`;
+    const cacheKey = `${stateCode}-${seed}-${seats}-${model}`;
     if (CACHED_TRACT_PARTITIONS.has(cacheKey)) {
       setPartition(CACHED_TRACT_PARTITIONS.get(cacheKey));
       setStage('ready');
@@ -1488,7 +1488,8 @@ function useStateTractPartition(stateCode, data, seats, baseSeed) {
         // converge in ~200 steps; large states (CA: 8040 tracts) need
         // 1500-2000. Cap to keep worst-case latency under ~8s.
         const burnIn = Math.max(400, Math.min(2000, Math.round(N * 0.25)));
-        const result = runReCom(
+        const result = runPartition(
+          model,
           tractData.units,
           tractData.adjacency,
           seats,
@@ -1510,7 +1511,7 @@ function useStateTractPartition(stateCode, data, seats, baseSeed) {
     }, 30);
 
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [stateCode, data, dataStage, tractData, seats, baseSeed]);
+  }, [stateCode, data, dataStage, tractData, seats, baseSeed, model]);
 
   return { tractData, partition, stage, error };
 }
@@ -1623,7 +1624,7 @@ function useStatePrecinctData(stateCode, active) {
 
 // Chained: fetch+build precinct data, then ReCom on the precinct graph.
 // Same shape/stage protocol as useStateTractPartition.
-function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
+function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active, model = 'recom') {
   const { precinctData, stage: dataStage, error: dataError } =
     useStatePrecinctData(active ? stateCode : null, active);
   const [partition, setPartition] = useState(null);
@@ -1638,13 +1639,16 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
     if (dataStage === 'error') { setStage('error'); setError(dataError); return; }
     if (dataStage !== 'ready' || !precinctData) return;
 
-    // Fast path: this seed was pre-baked offline → use it verbatim, no
-    // ReCom. (Same algorithm/seed, so identical to a live run.)
-    const pre = bakedPrecinctPartition(precinctData, baseSeed);
-    if (pre) { setPartition(pre); setStage('ready'); return; }
+    // Fast path: ReCom seeds are pre-baked offline → use verbatim, no
+    // compute. (seedgrow/splitline are deterministic and fast, so they
+    // just run live below — no per-seed bake needed.)
+    if (model === 'recom') {
+      const pre = bakedPrecinctPartition(precinctData, baseSeed);
+      if (pre) { setPartition(pre); setStage('ready'); return; }
+    }
 
     const seed = baseSeed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1);
-    const cacheKey = `${stateCode}-${seed}-${seats}`;
+    const cacheKey = `${stateCode}-${seed}-${seats}-${model}`;
     if (CACHED_PRECINCT_PARTITIONS.has(cacheKey)) {
       setPartition(CACHED_PRECINCT_PARTITIONS.get(cacheKey)); setStage('ready'); return;
     }
@@ -1660,8 +1664,8 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
         const burnIn = Math.max(400, Math.min(2200, Math.round(N * 0.12)));
         // Strict compactness so live (custom-seed) precinct districts read
         // as compact blocks, matching the pre-baked default seeds.
-        const result = runReCom(
-          precinctData.units, precinctData.adjacency, seats, seed,
+        const result = runPartition(
+          model, precinctData.units, precinctData.adjacency, seats, seed,
           { burnIn, tolerance: 0.02, compactness: 0.9 }
         );
         if (cancelled) return;
@@ -1675,7 +1679,7 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active) {
       }
     }, 30);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [stateCode, data, dataStage, precinctData, seats, baseSeed, active]);
+  }, [stateCode, data, dataStage, precinctData, seats, baseSeed, active, model]);
 
   return { precinctData, partition, stage, error };
 }
@@ -2862,7 +2866,7 @@ function runReComAllStates(data, baseSeed, options, onProgress) {
 // running "national 2-party" tally — this is essentially the popular vote,
 // which we present as the baseline against which "what would a neutral
 // House look like?" gets compared in subsequent iterations.
-function HeadlineRow({ data, year, loadStage, districting, districtingProgress, seed, setSeed, substrate = 'model', setSubstrate }) {
+function HeadlineRow({ data, year, loadStage, districting, districtingProgress, seed, setSeed, substrate = 'model', setSubstrate, model = 'recom', setModel }) {
   if (!data) {
     return (
       <div style={S.headline} className="r-headline">
@@ -3017,6 +3021,48 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
           {substrate === 'precinct'
             ? 'real counted votes · click a battleground state'
             : 'density-modeled within counties · every cycle'}
+        </div>
+      </div>
+      <div style={S.headlineNote}>
+        <div style={S.tickerKicker}>ALGORITHM</div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+          {[
+            ['recom', 'ReCom', 'Markov chain · seeded'],
+            ['seedgrow', 'Metro grow', 'metro cores · grow out'],
+            ['splitline', 'Splitline', 'shortest-line · exact pop'],
+          ].map(([key, label, sub]) => {
+            const on = model === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setModel && setModel(key)}
+                title={key === 'recom'
+                  ? 'Recombination Markov chain (DeFord–Duchin–Solomon). Random but reproducible from the published seed.'
+                  : key === 'seedgrow'
+                  ? 'Deterministic metro-anchored seed-and-grow: seed the densest unit (largest remaining metro) and grow outward to the population quota. Compact & community-anchored; population-looser on big multi-metro states.'
+                  : "Deterministic shortest-splitline (rangevoting.org): recursively cut with the shortest line giving the right population split. Exactly equipopulous, ignores communities."}
+                style={{
+                  padding: '6px 9px',
+                  fontFamily: '"JetBrains Mono", monospace',
+                  fontSize: 11,
+                  textAlign: 'left',
+                  background: on ? '#1a1a14' : 'transparent',
+                  color: on ? '#f5efe6' : '#1a1a14',
+                  border: '1px solid rgba(26,26,20,0.25)',
+                  cursor: 'pointer',
+                  lineHeight: 1.3,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{label}</div>
+                <div style={{ fontSize: 9, opacity: 0.75 }}>{sub}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ ...S.tickerSub, marginTop: 4, fontSize: 10, fontStyle: 'italic' }}>
+          {model === 'recom' ? 'reseed for a different valid map · click a state'
+            : model === 'seedgrow' ? 'deterministic · metro-centred · click a state'
+            : 'deterministic · perfectly equipopulous · click a state'}
         </div>
       </div>
       <div style={S.headlineNote}>
@@ -3443,7 +3489,7 @@ function PrerenderedMap({ data, seed, year, hoveredState, setHoveredState, onSel
 }
 
 /* ---------- MAP SECTION ------------------------------------------------- */
-function MapSection({ data, year, setYear, loadStage, districting, districtingProgress, substrate = 'model' }) {
+function MapSection({ data, year, setYear, loadStage, districting, districtingProgress, substrate = 'model', model = 'recom' }) {
   const [hoveredState, setHoveredState] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const districtingDone = !!districting;
@@ -3469,6 +3515,7 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
         stateCode={selectedState}
         onClose={() => setSelectedState(null)}
         substrate={substrate}
+        model={model}
       />
     );
   }
@@ -3553,7 +3600,7 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
 // Zoomed-in map of one state, with a stats panel showing per-district info.
 // Uses tract-level data when available (much finer geometry, ±1% balance),
 // falling back to county-level while tract data fetches/builds.
-function StateDetailSection({ data, year, setYear, districting, stateCode, onClose, substrate = 'model' }) {
+function StateDetailSection({ data, year, setYear, districting, stateCode, onClose, substrate = 'model', model = 'recom' }) {
   const sg = data.stateGeom[stateCode];
   const countyUnits = data.unitsByState[stateCode] || [];
   const stateRecord = districting.partitions[stateCode];
@@ -3566,21 +3613,22 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // active + ready. (Uncovered states show a notice and fall back below.)
   const precinctCovered = substrate === 'precinct' && PRECINCT_STATES.has(stateCode);
   const { precinctData, partition: precPartition, stage: precStage, error: precError } =
-    useStatePrecinctPartition(stateCode, data, seats, baseSeed, precinctCovered);
+    useStatePrecinctPartition(stateCode, data, seats, baseSeed, precinctCovered, model);
   const precinctReady = precinctCovered && precStage === 'ready' && precPartition && precinctData;
 
-  // If the national pass already upgraded this state to tract substrate,
-  // reuse its partition + units verbatim. This eliminates the double-run
-  // that previously produced inconsistent maps between national and detail.
+  // Reuse the national tract partition only when it was computed with the
+  // SAME model (the national engine runs 'recom'); for seedgrow/splitline
+  // the state recomputes locally so switching models actually re-draws.
   const sharedTractReady =
-    !precinctCovered && stateRecord && stateRecord.substrate === 'tract' && stateRecord.renderUnits;
+    !precinctCovered && model === 'recom' &&
+    stateRecord && stateRecord.substrate === 'tract' && stateRecord.renderUnits;
 
-  // Otherwise, run our own tract-level ReCom (falls back to county while
-  // loading or on error). Skipped entirely while precinct is active.
+  // Otherwise, run our own tract-level partition (falls back to county
+  // while loading). Skipped entirely while precinct is active.
   const { tractData, partition: tractPartition, stage: tractStage, error: tractError } =
     useStateTractPartition(
       (precinctCovered || sharedTractReady) ? null : stateCode,
-      data, seats, baseSeed
+      data, seats, baseSeed, model
     );
 
   // Choose the active substrate. Order of preference:
@@ -4893,6 +4941,12 @@ export default function USRedistrictingDashboard() {
   // 'precinct' = real precinct (2020 VTD) returns, no modeling, only the
   //             cycles/states with precinct files (state-detail view).
   const [substrate, setSubstrate] = useState('model');
+  // Districting algorithm. 'recom' = seeded ReCom Markov chain (random,
+  // published seed). 'seedgrow' = deterministic metro-anchored
+  // seed-and-grow. 'splitline' = deterministic shortest-splitline. The
+  // two deterministic models ignore the seed. (Drives the state-detail
+  // view for both substrates; national stays ReCom.)
+  const [model, setModel] = useState('recom');
   // `engaged` latches true the first time the user does something that
   // can't be served from a committed image (a custom seed, or any year
   // change). From then on the live engine drives the page.
@@ -4960,9 +5014,9 @@ export default function USRedistrictingDashboard() {
       <style>{globalCSS}</style>
       <Header />
       <section style={S.headlineSection}>
-        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={handleSetSubstrate} />
+        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={handleSetSubstrate} model={model} setModel={setModel} />
       </section>
-      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} substrate={substrate} />
+      <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} substrate={substrate} model={model} />
       <Footer />
     </div>
   );
