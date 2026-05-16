@@ -79,6 +79,54 @@ const SEATS_BY_STATE = {
   VA: 11, WA: 10, WV: 2, WI: 8, WY: 1,
 };
 
+// Per-decade apportionment — U.S. Census Bureau, Table C1, "Number of
+// Seats in U.S. House of Representatives by State: 1910 to 2020"
+// (www2.census.gov/.../apportionment-2020-tableC1.pdf). The number of
+// House seats per state — hence the number of districts the algorithm
+// draws — is fixed by the decennial census. SEATS_BY_STATE above is the
+// 2020 column (the national-overview default); the 1990/2000/2010
+// columns below let the enlarged state-detail view split a state into
+// the historically-correct district count for the cycle being viewed.
+// Every column sums to 435. Verified equal to SEATS_BY_STATE for 2020.
+const APPORTIONMENT = {
+  1990: { AL: 7, AK: 1, AZ: 6, AR: 4, CA: 52, CO: 6, CT: 6, DE: 1, FL: 23,
+    GA: 11, HI: 2, ID: 2, IL: 20, IN: 10, IA: 5, KS: 4, KY: 6, LA: 7,
+    ME: 2, MD: 8, MA: 10, MI: 16, MN: 8, MS: 5, MO: 9, MT: 1, NE: 3,
+    NV: 2, NH: 2, NJ: 13, NM: 3, NY: 31, NC: 12, ND: 1, OH: 19, OK: 6,
+    OR: 5, PA: 21, RI: 2, SC: 6, SD: 1, TN: 9, TX: 30, UT: 3, VT: 1,
+    VA: 11, WA: 9, WV: 3, WI: 9, WY: 1 },
+  2000: { AL: 7, AK: 1, AZ: 8, AR: 4, CA: 53, CO: 7, CT: 5, DE: 1, FL: 25,
+    GA: 13, HI: 2, ID: 2, IL: 19, IN: 9, IA: 5, KS: 4, KY: 6, LA: 7,
+    ME: 2, MD: 8, MA: 10, MI: 15, MN: 8, MS: 4, MO: 9, MT: 1, NE: 3,
+    NV: 3, NH: 2, NJ: 13, NM: 3, NY: 29, NC: 13, ND: 1, OH: 18, OK: 5,
+    OR: 5, PA: 19, RI: 2, SC: 6, SD: 1, TN: 9, TX: 32, UT: 3, VT: 1,
+    VA: 11, WA: 9, WV: 3, WI: 8, WY: 1 },
+  2010: { AL: 7, AK: 1, AZ: 9, AR: 4, CA: 53, CO: 7, CT: 5, DE: 1, FL: 27,
+    GA: 14, HI: 2, ID: 2, IL: 18, IN: 9, IA: 4, KS: 4, KY: 6, LA: 6,
+    ME: 2, MD: 8, MA: 9, MI: 14, MN: 8, MS: 4, MO: 8, MT: 1, NE: 3,
+    NV: 4, NH: 2, NJ: 12, NM: 3, NY: 27, NC: 13, ND: 1, OH: 16, OK: 5,
+    OR: 5, PA: 18, RI: 2, SC: 7, SD: 1, TN: 9, TX: 36, UT: 4, VT: 1,
+    VA: 11, WA: 10, WV: 3, WI: 8, WY: 1 },
+  2020: SEATS_BY_STATE,
+};
+// Which census's apportionment governed the U.S. House for an election
+// year. A census's map takes effect with the election TWO years later:
+//   1990 census → 1992–2000 elections   2000 census → 2002–2010
+//   2010 census → 2012–2020 elections   2020 census → 2022–2030
+// So the 2000 election still ran on 1990-census apportionment.
+function apportionmentCensusForYear(y) {
+  if (y <= 2000) return 1990;
+  if (y <= 2010) return 2000;
+  if (y <= 2020) return 2010;
+  return 2020;
+}
+// House seats for a state in the decade governing election year `y`.
+// Defensive fallback to the 2020 table for any unmatched code.
+function seatsForState(code, y) {
+  const t = APPORTIONMENT[apportionmentCensusForYear(y)] || SEATS_BY_STATE;
+  return t[code] ?? SEATS_BY_STATE[code] ?? 1;
+}
+
 const TOTAL_SEATS = 435;
 const TARGET_DISTRICT_POP = 761000; // approx US pop / 435
 
@@ -1714,7 +1762,12 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active, mod
     // just run live below — no per-seed bake needed.)
     if (model === 'recom') {
       const pre = bakedPrecinctPartition(precinctData, baseSeed);
-      if (pre) { setPartition(pre); setStage('ready'); return; }
+      // The bake is at 2020 apportionment; only reuse it when this
+      // cycle's decade asks for the same district count, otherwise fall
+      // through and recompute live at the per-decade `seats`.
+      if (pre && pre.partition.districtPop.length === seats) {
+        setPartition(pre); setStage('ready'); return;
+      }
     }
 
     const seed = baseSeed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1);
@@ -3717,7 +3770,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   const countyUnits = data.unitsByState[stateCode] || [];
   const stateRecord = districting.partitions[stateCode];
   const countyPartition = stateRecord?.partition;
-  const seats = sg ? sg.seats : 0;
+  // Per-decade apportionment: the enlarged state view splits the state
+  // into the number of districts the cycle's census actually gave it
+  // (e.g. TX = 32 in 2004, 36 in 2014, 38 in 2022). The national
+  // overview stays on 2020 apportionment (sg.seats); see methodology §2.
+  const seats = sg ? seatsForState(stateCode, year) : 0;
+  const nationalSeats = sg ? sg.seats : 0;
   const baseSeed = districting.seed;
 
   // Precinct view: real precinct (2020 VTD) returns for this state, if a
@@ -3731,8 +3789,11 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // Reuse the national tract partition only when it was computed with the
   // SAME model (the national engine runs 'recom'); for seedgrow/splitline
   // the state recomputes locally so switching models actually re-draws.
+  // ...but only when the cycle's apportionment matches the national
+  // (2020) one — otherwise the shared partition has the wrong district
+  // count for this decade and we must recompute locally at `seats`.
   const sharedTractReady =
-    !precinctCovered && model === 'recom' &&
+    !precinctCovered && model === 'recom' && seats === nationalSeats &&
     stateRecord && stateRecord.substrate === 'tract' && stateRecord.renderUnits;
 
   // Otherwise, run our own tract-level partition (falls back to county
