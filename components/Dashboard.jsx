@@ -389,6 +389,34 @@ function pathFromBoundaryEdges(edges, excludeEdges) {
   return { pathD: main, slabPathD: slab };
 }
 
+// Robust district-border mesh (topojson-mesh style): an UNDIRECTED
+// segment is an internal border iff the units touching it span ≥2
+// districts. Winding-insensitive + 0.1-unit key tolerance → no dropped
+// sides, no gaps. Returns one path string for the whole unit set.
+function meshBorderPath(units, assignment) {
+  const seg = new Map();
+  const r = (v) => Math.round(v * 10) / 10;
+  for (let i = 0; i < units.length; i++) {
+    const d = assignment[i];
+    if (d < 0) continue;
+    for (const poly of units[i].polygons) for (const ring of poly) {
+      for (let j = 0, n = ring.length; j < n; j++) {
+        const A = ring[j], B = ring[(j + 1) % n];
+        const ax = r(A[0]), ay = r(A[1]), bx = r(B[0]), by = r(B[1]);
+        if (ax === bx && ay === by) continue;
+        const key = (ax < bx || (ax === bx && ay <= by))
+          ? `${ax},${ay},${bx},${by}` : `${bx},${by},${ax},${ay}`;
+        let s = seg.get(key);
+        if (!s) { s = { x1: ax, y1: ay, x2: bx, y2: by, ds: new Set() }; seg.set(key, s); }
+        s.ds.add(d);
+      }
+    }
+  }
+  let path = '';
+  for (const s of seg.values()) if (s.ds.size >= 2) path += `M${s.x1},${s.y1}L${s.x2},${s.y2}`;
+  return path;
+}
+
 // Given a list of units (each with `.fips` and `.polygons`), find all edges
 // that lie on a slab-cut between two SAME-FIPS fragments. Returns a Set of
 // eKey strings (in BOTH directions for each cut). These are population-
@@ -3161,6 +3189,7 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
             : 'deterministic · perfectly equipopulous · click a state'}
         </div>
       </div>
+      {model === 'recom' && (
       <div style={S.headlineNote}>
         <div style={S.tickerKicker}>RESEED</div>
         <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -3226,6 +3255,7 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
           changes the entire chain → different valid map
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -3302,44 +3332,35 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
   // view matches the state-detail view. For not-yet-upgraded states we
   // fall back to county-fragment rendering.
   const unitPaths = useMemo(() => {
-    // Build the per-state list of render-units. Upgraded states use the
-    // tract polygons stored on the partition; others use county fragments.
+    // Consolidated view: every unit is filled by ITS DISTRICT's aggregate
+    // two-party D-share (so each district is ONE solid colour) and carries
+    // no internal stroke — only the district mesh border shows. No
+    // intra-district county/tract lines, matching the precinct national
+    // look the user preferred.
     const elements = [];
-    const upgradedByState = new Map();
+    const rendered = new Set();
     if (districting) {
       for (const [code, p] of Object.entries(districting.partitions)) {
-        if ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) upgradedByState.set(code, p.renderUnits);
+        if (!p.partition) continue;
+        const units = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits)
+          ? p.renderUnits : p.units;
+        if (!units || !units.length) continue;
+        const results = computeDistrictResults(units, p.partition, year);
+        const colorByD = results.map((r) => shareToColor(r.dShare));
+        const asn = p.partition.assignment;
+        for (let i = 0; i < units.length; i++) {
+          const u = units[i];
+          const c = colorByD[asn[i]] || '#e6ddd0';
+          elements.push(<path key={u.id} d={u.pathD} fill={c} stroke={c} strokeWidth="0.06" />);
+        }
+        rendered.add(code);
       }
     }
-    // Track which unit ids are rendered as tract so we can skip them when
-    // we iterate the county fragments.
-    const rendered = new Set();
-    for (const [code, units] of upgradedByState) {
-      for (const u of units) {
-        elements.push(
-          <path
-            key={u.id}
-            d={u.pathD}
-            fill={unitColorForYear(u, year)}
-            stroke="rgba(0,0,0,0.05)"
-            strokeWidth="0.025"
-          />
-        );
-      }
-      rendered.add(code);
-    }
-    // Render remaining state units as county fragments
+    // States with no partition yet (loading) → unit's own colour, faint.
     for (const u of data.units) {
       if (rendered.has(u.stateCode)) continue;
-      elements.push(
-        <path
-          key={u.id}
-          d={u.pathD}
-          fill={unitColorForYear(u, year)}
-          stroke="rgba(0,0,0,0.05)"
-          strokeWidth="0.05"
-        />
-      );
+      const c = unitColorForYear(u, year);
+      elements.push(<path key={u.id} d={u.pathD} fill={c} stroke={c} strokeWidth="0.05" />);
     }
     return elements;
   }, [data, year, districting]);
@@ -3353,21 +3374,11 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
     for (const [code, p] of Object.entries(districting.partitions)) {
       const partition = p.partition;
       if (!partition) continue;
-      // Use tract units for upgraded states (no slab artifacts to hide);
-      // county fragments for the rest (slab-cuts get a soft dashed stroke).
       const units = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) ? p.renderUnits : p.units;
-      const k = partition.districtPop.length;
-      const slabCutEdges = (p.substrate === 'tract' || p.substrate === 'precinct') ? null : findSlabCutEdges(units);
-      for (let d = 0; d < k; d++) {
-        const polys = [];
-        for (let i = 0; i < units.length; i++) {
-          if (partition.assignment[i] === d) polys.push(units[i].polygons);
-        }
-        if (polys.length === 0) continue;
-        // Edge-based outline → always complete (no dropped sides).
-        const { pathD, slabPathD } = pathFromBoundaryEdges(boundaryEdgesOf(polys), slabCutEdges);
-        if (pathD || slabPathD) out.push({ key: `${code}-${d}`, pathD, slabPathD });
-      }
+      if (!units || !units.length) continue;
+      // One robust mesh border per state (undirected → no dropped sides).
+      const pathD = meshBorderPath(units, partition.assignment);
+      if (pathD) out.push({ key: code, pathD, slabPathD: '' });
     }
     return out;
   }, [districting]);
@@ -4179,7 +4190,6 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             {!precinctCovered && tractStage === 'error' && (
               <span style={{ color: '#c44536' }}> · tract data unavailable ({tractError ? tractError.slice(0, 40) : '—'}); showing county fallback</span>
             )}
-            . Click anywhere outside the map (or press ESC) to return to the national view.
           </p>
         </div>
         <div style={S.detailHeaderControls}>
@@ -4245,12 +4255,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 line so it reads over the colour mosaic. */}
             {borderPath && (
               <path d={borderPath} fill="none" stroke="#fdfaf2"
-                strokeWidth={usePrecinct ? Math.max(1.5, (x1 - x0) / 150) : Math.max(1.2, (x1 - x0) / 210)}
+                strokeWidth={(usePrecinct ? Math.max(1.5, (x1 - x0) / 150) : Math.max(1.2, (x1 - x0) / 210)) / zoom}
                 strokeLinejoin="round" strokeLinecap="round" opacity={0.9} pointerEvents="none" />
             )}
             {borderPath && (
               <path d={borderPath} fill="none" stroke="#1a1a14"
-                strokeWidth={usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.6, (x1 - x0) / 320)}
+                strokeWidth={(usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.6, (x1 - x0) / 320)) / zoom}
                 strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
             )}
             {/* Selected district: gold tint over its unit union + a bold
@@ -4261,7 +4271,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             ) : null}
             {selBorderPath && (
               <path d={selBorderPath} fill="none" stroke="#e09f3e"
-                strokeWidth={Math.max(1.6, (x1 - x0) / 130)}
+                strokeWidth={Math.max(1.6, (x1 - x0) / 130) / zoom}
                 strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
             )}
             {/* Transparent per-district hit layer (unit union → every
@@ -4274,8 +4284,8 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               </path>
             ) : null)}
             {/* Layer 3: state outline as bold WHITE (with thin dark edge below for definition) */}
-            <path d={sg.pathD} fill="none" stroke="#1a1a14" strokeWidth={Math.max(1.2, (x1 - x0) / 140)} strokeLinejoin="round" />
-            <path d={sg.pathD} fill="none" stroke="#fdfaf2" strokeWidth={Math.max(0.9, (x1 - x0) / 200)} strokeLinejoin="round" />
+            <path d={sg.pathD} fill="none" stroke="#1a1a14" strokeWidth={Math.max(1.2, (x1 - x0) / 140) / zoom} strokeLinejoin="round" />
+            <path d={sg.pathD} fill="none" stroke="#fdfaf2" strokeWidth={Math.max(0.9, (x1 - x0) / 200) / zoom} strokeLinejoin="round" />
             {/* Layer 4a: leader lines from external plates to district pole-points.
                 Drawn BEFORE plates so the line tucks under the plate edge.
                 Two-pass for visibility: dark stroke beneath, lighter accent
@@ -4469,36 +4479,6 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 </span>
               </div>
             ))}
-          </div>
-          <div style={S.detailPanelNote}>
-            Districts sorted by D-share. Each row's color swatch shows that district's lean on the
-            R↔D scale. Population deviation is from {(stateUnits.reduce((s,u)=>s+u.pop,0)/k/1000).toFixed(0)}K target/district.
-            {usePrecinct ? (
-              <> Granularity: <strong>voting precincts (2020 VTDs)</strong> — the actual
-                counted <strong>{year}</strong> presidential returns and 2020 census population
-                from Dave's Redistricting <code style={{
-                  fontFamily: '"JetBrains Mono", monospace', fontSize: '0.9em', background: 'rgba(26,26,20,0.06)', padding: '0 4px', borderRadius: 2,
-                }}>vtd_data</code>. <strong>No county-level modeling</strong>: unlike the
-                model substrate (county totals split across tracts by a density heuristic),
-                every vote here was cast and counted in the precinct it's shown in. Rook
-                adjacency from the precinct boundary graph. This is as close to a real-world
-                redistricting input as the tool gets — available only for the precinct cycles
-                ({PRECINCT_YEARS.join(', ')}) and the built states.</>
-            ) : useTracts ? (
-              <> Granularity: <strong>2020 census tracts</strong>, with parent-county votes
-                disaggregated by tract population. Adjacency from shared topojson arcs, augmented
-                with bbox-proximity bridges for coastal/island tracts that the simplification
-                step left disconnected.</>
-            ) : (
-              <> Granularity: <strong>counties</strong> (with the largest counties slab-cut into
-                target-population fragments). Internal black lines in metropolitan areas are
-                fragment-to-fragment district boundaries from this slab subdivision.
-                {tractStage === 'unconfigured' && (
-                  <> Tract-level rendering is available but disabled — set <code style={{
-                    fontFamily: '"JetBrains Mono", monospace', fontSize: '0.9em', background: 'rgba(26,26,20,0.06)', padding: '0 4px', borderRadius: 2,
-                  }}>TRACTS_BASE_URL</code> in the JSX to a CDN path with the tract files.</>
-                )}</>
-            )}
           </div>
         </div>
       </div>
@@ -5258,7 +5238,7 @@ export default function USRedistrictingDashboard() {
   // seed-and-grow. 'splitline' = deterministic shortest-splitline. The
   // two deterministic models ignore the seed. (Drives the state-detail
   // view for both substrates; national stays ReCom.)
-  const [model, setModel] = useState('recom');
+  const [model, setModel] = useState('splitline');
   // `engaged` latches true the first time the user does something that
   // can't be served from a committed image (a custom seed, or any year
   // change). From then on the live engine drives the page.
@@ -5267,8 +5247,11 @@ export default function USRedistrictingDashboard() {
   // Pre-render fast path: model substrate, a committed default seed, at the
   // default year, before engagement. (Precinct mode never uses the
   // pre-rendered model images.)
+  // Pre-rendered images are the ReCom mosaic for the default seeds; only
+  // valid when the ReCom model is active. Splitline (now the default) and
+  // any non-default seed use the live consolidated render instead.
   const prerenderMode =
-    substrate === 'model' &&
+    substrate === 'model' && model === 'recom' &&
     !engaged && DEFAULT_SEEDS.has(seed) && year === YEAR_CONFIG.defaultYear;
 
   const summary = usePrerendered(seed, prerenderMode);
