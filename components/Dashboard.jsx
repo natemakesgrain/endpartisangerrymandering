@@ -351,6 +351,44 @@ function traceBoundary(unitPolygonsList) {
   return loops;
 }
 
+// The EXACT set of boundary edges of a unit-set: every directed edge whose
+// reverse is NOT also present (i.e. it isn't shared by two same-district
+// units). Unlike traceBoundary this needs no loop-closing, so a district's
+// outline is always complete — a broken/ T-junction chain can't make a
+// whole side vanish (the bug the loop tracer had).
+function boundaryEdgesOf(unitPolygonsList) {
+  const all = new Map();
+  for (const polys of unitPolygonsList) {
+    for (const poly of polys) {
+      for (const ring of poly) {
+        for (let i = 0, n = ring.length; i < n; i++) {
+          const a = ring[i], b = ring[(i + 1) % n];
+          if (vKey(a[0], a[1]) === vKey(b[0], b[1])) continue;
+          all.set(eKey(a, b), [a, b]);
+        }
+      }
+    }
+  }
+  const out = [];
+  for (const [k, e] of all) if (!all.has(eKey(e[1], e[0]))) out.push(e);
+  return out;
+}
+
+// Draw boundary edges as independent segments (each its own M…L so no
+// spurious connecting lines). Edges in `excludeEdges` (slab cuts) are
+// dropped from the main path and returned separately for the dashed
+// treatment.
+function pathFromBoundaryEdges(edges, excludeEdges) {
+  let main = '', slab = '';
+  for (const [a, b] of edges) {
+    const seg = 'M' + a[0].toFixed(1) + ',' + a[1].toFixed(1) +
+                'L' + b[0].toFixed(1) + ',' + b[1].toFixed(1);
+    if (excludeEdges && (excludeEdges.has(eKey(a, b)) || excludeEdges.has(eKey(b, a)))) slab += seg;
+    else main += seg;
+  }
+  return { pathD: main, slabPathD: slab };
+}
+
 // Given a list of units (each with `.fips` and `.polygons`), find all edges
 // that lie on a slab-cut between two SAME-FIPS fragments. Returns a Set of
 // eKey strings (in BOTH directions for each cut). These are population-
@@ -3326,9 +3364,8 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
           if (partition.assignment[i] === d) polys.push(units[i].polygons);
         }
         if (polys.length === 0) continue;
-        const loops = traceBoundary(polys);
-        const pathD = pathFromLoopsExcluding(loops, slabCutEdges);
-        const slabPathD = slabCutEdges ? pathFromLoopsOnly(loops, slabCutEdges) : '';
+        // Edge-based outline → always complete (no dropped sides).
+        const { pathD, slabPathD } = pathFromBoundaryEdges(boundaryEdgesOf(polys), slabCutEdges);
         if (pathD || slabPathD) out.push({ key: `${code}-${d}`, pathD, slabPathD });
       }
     }
@@ -3844,16 +3881,10 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   //    disconnected) get suppressed to avoid scattered black dots.
   const districtPaths = useMemo(() => {
     if (!partition) return [];
-    // Precinct geometry tessellates imperfectly (snap/simplify leaves
-    // sub-precinct slivers); without a floor every sliver traces as a
-    // micro-loop → speckle. Scale the floor to the state so it kills
-    // slivers but never a real district body. Slab-cut detection is a
-    // county-fragment concept — meaningless for precincts (and O(n) over
-    // ~thousands of units), so it's disabled here just like tract mode.
-    const [sbx0, sby0, sbx1, sby1] = sg.bbox;
-    const minLoopArea = usePrecinct
-      ? Math.max(8, ((sbx1 - sbx0) * (sby1 - sby0)) / 1400)
-      : useTracts ? 4 : 0;
+    // Edge-rendering already cancels interior edges, so no per-loop area
+    // floor is needed (and none can drop a real side). Slab-cut detection
+    // is a county-fragment concept — meaningless for precincts/tracts
+    // (and O(n) over thousands of units), so it's disabled there.
     const slabCutEdges = (useTracts || usePrecinct) ? null : findSlabCutEdges(stateUnits);
     const out = [];
     for (let d = 0; d < k; d++) {
@@ -3874,9 +3905,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       }
       if (polys.length === 0) continue;
       const fallbackCentroid = popAcc > 0 ? [cxAcc / popAcc, cyAcc / popAcc] : null;
+      // Visible outline = the raw boundary edges (always complete — no
+      // loop-closing, so a broken chain can't drop a whole side).
+      const { pathD, slabPathD } = pathFromBoundaryEdges(boundaryEdgesOf(polys), slabCutEdges);
+      // Closed loops are still traced, but ONLY to anchor the number
+      // label (pole of inaccessibility); centroid is the fallback.
       const loops = traceBoundary(polys);
-      const pathD = pathFromLoopsExcluding(loops, slabCutEdges, minLoopArea);
-      const slabPathD = slabCutEdges ? pathFromLoopsOnly(loops, slabCutEdges, minLoopArea) : '';
       const pole = loops.length ? poleOfInaccessibility(loops, 0.5) : null;
       // Prefer the pole-of-inaccessibility (cleaner inline placement); fall
       // back to the population-weighted centroid so that EVERY district that
