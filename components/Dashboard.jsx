@@ -1494,7 +1494,8 @@ function useStateTractPartition(stateCode, data, seats, baseSeed, model = 'recom
           tractData.adjacency,
           seats,
           seed,
-          { burnIn, tolerance: 0.01 }
+          { burnIn, tolerance: 0.01,
+            cohesion: tractData.units.map((u) => u.fips) }
         );
         const elapsed = Date.now() - t0;
         if (cancelled) return;
@@ -1666,7 +1667,8 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active, mod
         // as compact blocks, matching the pre-baked default seeds.
         const result = runPartition(
           model, precinctData.units, precinctData.adjacency, seats, seed,
-          { burnIn, tolerance: 0.02, compactness: 0.9 }
+          { burnIn, tolerance: 0.02, compactness: 0.9,
+            cohesion: precinctData.units.map((u) => u.fips) }
         );
         if (cancelled) return;
         if (!result) throw new Error('ReCom failed to produce a partition');
@@ -2226,6 +2228,10 @@ function runReCom(stateUnits, stateAdjacency, k, seed, options = {}) {
     sampleEvery = 25,
     tolerance = 0.05,
     compactness = 1.5,
+    cohesion = null, // optional Int32Array/array: group id per unit
+                     // (county FIPS index). When set, a post-chain polish
+                     // consolidates avoidable group splits — keeps a
+                     // metro's counties together where population allows.
   } = options;
 
   if (k === 1) {
@@ -2496,6 +2502,64 @@ function runReCom(stateUnits, stateAdjacency, k, seed, options = {}) {
         acceptsSinceSample = 0;
       }
       if (accepts + rejects > burnIn + numSamples * sampleEvery * 30) break;
+    }
+  }
+
+  // ---- Metro/county-cohesion polish ------------------------------------
+  // ReCom optimises population + compactness but is indifferent to whether
+  // it slices a county (hence a metro) across districts. This deterministic
+  // post-pass relabels boundary units to CONSOLIDATE avoidable group
+  // splits — a county that doesn't have to be divided (pop ≤ a district)
+  // ends up whole — without ever pushing a district outside a population
+  // guard band or breaking contiguity. Counties that genuinely must split
+  // (Nashville/Davidson ≫ one district) still split; the gratuitous
+  // fragmentation is what gets cleaned, exactly the user's ask.
+  if (cohesion && k > 1) {
+    const asg = state.assignment, dpop = state.districtPop;
+    const band = Math.max(tolerance * 1.5, 0.03);
+    const loP = target * (1 - band), hiP = target * (1 + band);
+    // tally[g] = Map(district → #units of group g in that district)
+    const tally = new Map();
+    for (let i = 0; i < N; i++) {
+      const g = cohesion[i]; if (g == null) continue;
+      let m = tally.get(g); if (!m) tally.set(g, (m = new Map()));
+      m.set(asg[i], (m.get(asg[i]) || 0) + 1);
+    }
+    const MAX_PASS = 5;
+    for (let pass = 0; pass < MAX_PASS; pass++) {
+      let changed = false;
+      for (let u = 0; u < N; u++) {
+        const d = asg[u], g = cohesion[u];
+        if (g == null) continue;
+        const pu = stateUnits[u].pop || 0;
+        if (dpop[d] - pu < loP) continue; // would underfill source
+        // candidate target districts = neighbour districts ≠ d
+        let bestD2 = -1, bestNet = 0;
+        const seenD2 = new Set();
+        for (const v of stateAdjacency[u]) {
+          const d2 = asg[v];
+          if (d2 === d || seenD2.has(d2)) continue;
+          seenD2.add(d2);
+          if (dpop[d2] + pu > hiP) continue; // would overfill target
+          const gm = tally.get(g);
+          const inD = gm.get(d) || 0, inD2 = gm.get(d2) || 0;
+          // group-split cost delta: −1 if u was g's last unit in d,
+          // +1 if d2 had no g unit yet.
+          const net = (inD === 1 ? -1 : 0) + (inD2 === 0 ? 1 : 0);
+          if (net < bestNet) { bestNet = net; bestD2 = d2; }
+        }
+        if (bestD2 < 0 || bestNet >= 0) continue;       // no improvement
+        if (!isContigAfterRemove(d, u)) continue;       // keep contiguity
+        // apply
+        const gm = tally.get(g);
+        gm.set(d, (gm.get(d) || 0) - 1);
+        gm.set(bestD2, (gm.get(bestD2) || 0) + 1);
+        asg[u] = bestD2;
+        dpop[d] -= pu; dpop[bestD2] += pu;
+        polishMoves++;
+        changed = true;
+      }
+      if (!changed) break;
     }
   }
 
@@ -2945,13 +3009,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
               <span style={{ color: seats.rSeats > seats.dSeats ? '#b3433b' : 'rgba(26,26,20,0.4)', fontWeight: seats.rSeats > seats.dSeats ? 600 : 400 }}>R {seats.rSeats}</span>
             </div>
             <div style={S.tickerSub} className="r-tickersub">
-              {typeof seats.competitive === 'number' && (
-                <><strong>{seats.competitive}</strong> competitive (|margin| ≤ 10pp) · </>
-              )}
-              seed = {seed}
-              {popVariance && (
-                <> · variance ±{(popVariance.worstDev * 100).toFixed(1)}% (worst: {popVariance.worstCode}) · {popVariance.inside}/{popVariance.total} states ≤ ±5%</>
-              )}
+              {typeof seats.competitive === 'number'
+                ? <><strong>{seats.competitive}</strong> competitive seats</>
+                : null}
             </div>
           </>
         ) : districtingActive ? (
@@ -2972,10 +3032,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
             <span style={{ color: !dActualWon ? '#b3433b' : 'rgba(26,26,20,0.4)', fontWeight: !dActualWon ? 600 : 400 }}>R {actualHouse.r}</span>
           </div>
           <div style={S.tickerSub} className="r-tickersub">
-            {typeof actualHouse.competitive === 'number' && (
-              <><strong>{actualHouse.competitive}</strong> competitive (|margin| ≤ 10pp) · </>
-            )}
-            post-election · House Clerk
+            {typeof actualHouse.competitive === 'number'
+              ? <><strong>{actualHouse.competitive}</strong> competitive seats</>
+              : null}
           </div>
         </div>
       )}
@@ -3027,8 +3086,7 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         <div style={S.tickerKicker}>ALGORITHM</div>
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {[
-            ['recom', 'ReCom', 'Markov chain · seeded'],
-            ['seedgrow', 'Metro grow', 'metro cores · grow out'],
+            ['recom', 'ReCom', 'Markov chain · keeps metros'],
             ['splitline', 'Splitline', 'shortest-line · exact pop'],
           ].map(([key, label, sub]) => {
             const on = model === key;
@@ -3037,9 +3095,7 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
                 key={key}
                 onClick={() => setModel && setModel(key)}
                 title={key === 'recom'
-                  ? 'Recombination Markov chain (DeFord–Duchin–Solomon). Random but reproducible from the published seed.'
-                  : key === 'seedgrow'
-                  ? 'Deterministic metro-anchored seed-and-grow: seed the densest unit (largest remaining metro) and grow outward to the population quota. Compact & community-anchored; population-looser on big multi-metro states.'
+                  ? 'Recombination Markov chain (DeFord–Duchin–Solomon) with a metro-cohesion bonus that resists splitting a metro area across districts. Random but reproducible from the published seed.'
                   : "Deterministic shortest-splitline (rangevoting.org): recursively cut with the shortest line giving the right population split. Exactly equipopulous, ignores communities."}
                 style={{
                   padding: '6px 9px',
@@ -3061,7 +3117,6 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         </div>
         <div style={{ ...S.tickerSub, marginTop: 4, fontSize: 10, fontStyle: 'italic' }}>
           {model === 'recom' ? 'reseed for a different valid map · click a state'
-            : model === 'seedgrow' ? 'deterministic · metro-centred · click a state'
             : 'deterministic · perfectly equipopulous · click a state'}
         </div>
       </div>
@@ -3355,8 +3410,14 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
         {districtPaths.map((dp) => dp.slabPathD ? (
           <path key={`${dp.key}-slab`} d={dp.slabPathD} fill="none" stroke="rgba(26,26,20,0.35)" strokeWidth="0.35" strokeDasharray="0.8,0.8" strokeLinejoin="round" pointerEvents="none" />
         ) : null)}
+        {/* District boundary: a white casing UNDER a bold dark line so it
+            reads clearly over the county/tract colour mosaic (a single
+            thin black line was getting lost — user feedback). */}
         {districtPaths.map((dp) => dp.pathD ? (
-          <path key={dp.key} d={dp.pathD} fill="none" stroke="#1a1a14" strokeWidth="0.6" strokeLinejoin="round" pointerEvents="none" />
+          <path key={`${dp.key}-c`} d={dp.pathD} fill="none" stroke="#fdfaf2" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" opacity="0.85" />
+        ) : null)}
+        {districtPaths.map((dp) => dp.pathD ? (
+          <path key={dp.key} d={dp.pathD} fill="none" stroke="#1a1a14" strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
         ) : null)}
         {/* Layer 3: state borders — dark stroke beneath, bold white stroke on top */}
         {stateOutlinesDark}
@@ -4010,17 +4071,17 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 strokeLinecap="round"
               />
             ) : null)}
-            {/* Precinct mode: the district boundary must read clearly over
-                a busy precinct mosaic, so give it the same bold treatment
-                as the state border — a wide white casing under a solid dark
-                line. (Tract/county mode keeps the single thin line.) */}
-            {usePrecinct && districtPaths.map((dp) => dp.pathD ? (
+            {/* District boundary always gets a white casing UNDER a bold
+                dark line so it reads clearly over the colour mosaic — the
+                single thin black line was getting lost (user feedback),
+                in BOTH the precinct and the county/tract views. */}
+            {districtPaths.map((dp) => dp.pathD ? (
               <path
                 key={`${dp.d}-case`}
                 d={dp.pathD}
                 fill="none"
                 stroke="#fdfaf2"
-                strokeWidth={Math.max(1.5, (x1 - x0) / 150)}
+                strokeWidth={usePrecinct ? Math.max(1.5, (x1 - x0) / 150) : Math.max(1.2, (x1 - x0) / 210)}
                 strokeLinejoin="round"
                 strokeLinecap="round"
                 opacity={0.9}
@@ -4032,7 +4093,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 d={dp.pathD}
                 fill="none"
                 stroke="#1a1a14"
-                strokeWidth={usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.4, (x1 - x0) / 400)}
+                strokeWidth={usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.6, (x1 - x0) / 320)}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />

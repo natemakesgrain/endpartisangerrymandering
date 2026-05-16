@@ -120,7 +120,10 @@ async function buildState(st) {
       const e = ds[`E_${String(y).slice(2)}_PRES`];
       if (e && (e.Dem || e.Rep)) { v[y] = [Math.round(e.Dem || 0), Math.round(e.Rep || 0)]; anyVotes = true; }
     }
-    if (!anyVotes) continue; // a precinct with no votes can't bias totals
+    void anyVotes; // keep EVERY precinct as a unit — even zero-vote ones
+    // carry population and (critically) are stepping-stones in the DRA
+    // adjacency graph; dropping them fragmented the graph and forced long
+    // bogus centroid bridges → the "inland island" artifact.
     const rawPolys = f.geometry.type === 'MultiPolygon'
       ? f.geometry.coordinates : [f.geometry.coordinates];
     const outPolys = [];
@@ -245,14 +248,25 @@ async function buildState(st) {
     return cs;
   };
   let cs = comps().sort((a, b) => b.length - a.length);
+  const nComp = cs.length;
+  let maxBridge = 0;
   for (let ci = 1; ci < cs.length; ci++) {
     let bO = -1, bM = -1, bd = Infinity;
     for (const o of cs[ci]) for (const m of cs[0]) {
       const d = (cent[o][0] - cent[m][0]) ** 2 + (cent[o][1] - cent[m][1]) ** 2;
       if (d < bd) { bd = d; bO = o; bM = m; }
     }
-    if (bO !== -1) { adjacency[bO].add(bM); adjacency[bM].add(bO); cs[0].push(...cs[ci]); }
+    if (bO !== -1) {
+      adjacency[bO].add(bM); adjacency[bM].add(bO); cs[0].push(...cs[ci]);
+      maxBridge = Math.max(maxBridge, Math.sqrt(bd));
+    }
   }
+  // With every DRA precinct kept 1:1, the DRA graph (a single component)
+  // is preserved → this should report "components 1, no bridges". Any
+  // bridging here means precincts were still lost somewhere.
+  const bridgeNote = nComp === 1
+    ? 'graph 1-component ✓'
+    : `BRIDGED ${nComp - 1} gap(s), max ${maxBridge.toFixed(1)}u`;
 
   const adjArr = adjacency.map((s) => [...s]);
 
@@ -264,6 +278,9 @@ async function buildState(st) {
   // 255 = unassigned) — the same format the app's b64ToAssignment reads.
   const seats = SEATS[st] || 1;
   const miniUnits = precincts.map((p) => ({ pop: p.pop }));
+  // County FIPS (first 5 of the VTD GEOID) → the cohesion group so the
+  // bake also resists gratuitously slicing counties/metros across seats.
+  const cohesion = precincts.map((p) => String(p.id).slice(0, 5));
   const baked = {};
   if (seats > 1) {
     const N = precincts.length;
@@ -287,7 +304,7 @@ async function buildState(st) {
       let best = null, bestDev = Infinity, usedC = null;
       for (const c of [0.9, 1.4, 2.2]) {
         const r = runReCom(miniUnits, adjArr, seats, stateSeed(bs, st),
-          { burnIn, tolerance: 0.02, compactness: c });
+          { burnIn, tolerance: 0.02, compactness: c, cohesion });
         if (!r) continue;
         const dev = devOf(r);
         if (dev < bestDev) { best = r; bestDev = dev; usedC = c; }
@@ -368,7 +385,7 @@ async function buildState(st) {
   let td = 0, tr = 0;
   for (const p of precincts) { if (p.v[2020]) { td += p.v[2020][0]; tr += p.v[2020][1]; } }
   console.log(`  ${st} (${fips}): ${precincts.length} precincts, ${kb} KB, ` +
-    `2020 D ${(100 * td / (td + tr)).toFixed(1)}%  components→1`);
+    `2020 D ${(100 * td / (td + tr)).toFixed(1)}%  ${bridgeNote}`);
 }
 
 const states = process.argv.slice(2).length ? process.argv.slice(2) : DEFAULT_STATES;

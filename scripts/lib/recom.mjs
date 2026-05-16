@@ -1,10 +1,6 @@
-// AUTO-EXTRACTED from components/Dashboard.jsx (lines 1698-2464), verbatim
-// except `export` added to the 5 entry points. Pure ReCom — no React/DOM.
-// Used by scripts/build-precincts.mjs to PRE-BAKE precinct district
-// assignments with the EXACT algorithm the app runs in-browser, so the
-// national precinct view renders baked districts instantly.
-// KEEP IN SYNC: if the ReCom block in Dashboard.jsx changes, re-extract
-// via: node scripts/_extract_recom.mjs
+// AUTO-EXTRACTED from components/Dashboard.jsx (DETERMINISTIC PRNG →
+// runReCom block) via scripts/_extract_recom.mjs — verbatim except
+// `export` added. Pure ReCom, no React/DOM. KEEP IN SYNC.
 
 /* ---------- DETERMINISTIC PRNG ------------------------------------------ */
 // Mulberry32: small fast 32-bit PRNG with adequate distribution properties
@@ -498,6 +494,10 @@ export function runReCom(stateUnits, stateAdjacency, k, seed, options = {}) {
     sampleEvery = 25,
     tolerance = 0.05,
     compactness = 1.5,
+    cohesion = null, // optional Int32Array/array: group id per unit
+                     // (county FIPS index). When set, a post-chain polish
+                     // consolidates avoidable group splits — keeps a
+                     // metro's counties together where population allows.
   } = options;
 
   if (k === 1) {
@@ -768,6 +768,64 @@ export function runReCom(stateUnits, stateAdjacency, k, seed, options = {}) {
         acceptsSinceSample = 0;
       }
       if (accepts + rejects > burnIn + numSamples * sampleEvery * 30) break;
+    }
+  }
+
+  // ---- Metro/county-cohesion polish ------------------------------------
+  // ReCom optimises population + compactness but is indifferent to whether
+  // it slices a county (hence a metro) across districts. This deterministic
+  // post-pass relabels boundary units to CONSOLIDATE avoidable group
+  // splits — a county that doesn't have to be divided (pop ≤ a district)
+  // ends up whole — without ever pushing a district outside a population
+  // guard band or breaking contiguity. Counties that genuinely must split
+  // (Nashville/Davidson ≫ one district) still split; the gratuitous
+  // fragmentation is what gets cleaned, exactly the user's ask.
+  if (cohesion && k > 1) {
+    const asg = state.assignment, dpop = state.districtPop;
+    const band = Math.max(tolerance * 1.5, 0.03);
+    const loP = target * (1 - band), hiP = target * (1 + band);
+    // tally[g] = Map(district → #units of group g in that district)
+    const tally = new Map();
+    for (let i = 0; i < N; i++) {
+      const g = cohesion[i]; if (g == null) continue;
+      let m = tally.get(g); if (!m) tally.set(g, (m = new Map()));
+      m.set(asg[i], (m.get(asg[i]) || 0) + 1);
+    }
+    const MAX_PASS = 5;
+    for (let pass = 0; pass < MAX_PASS; pass++) {
+      let changed = false;
+      for (let u = 0; u < N; u++) {
+        const d = asg[u], g = cohesion[u];
+        if (g == null) continue;
+        const pu = stateUnits[u].pop || 0;
+        if (dpop[d] - pu < loP) continue; // would underfill source
+        // candidate target districts = neighbour districts ≠ d
+        let bestD2 = -1, bestNet = 0;
+        const seenD2 = new Set();
+        for (const v of stateAdjacency[u]) {
+          const d2 = asg[v];
+          if (d2 === d || seenD2.has(d2)) continue;
+          seenD2.add(d2);
+          if (dpop[d2] + pu > hiP) continue; // would overfill target
+          const gm = tally.get(g);
+          const inD = gm.get(d) || 0, inD2 = gm.get(d2) || 0;
+          // group-split cost delta: −1 if u was g's last unit in d,
+          // +1 if d2 had no g unit yet.
+          const net = (inD === 1 ? -1 : 0) + (inD2 === 0 ? 1 : 0);
+          if (net < bestNet) { bestNet = net; bestD2 = d2; }
+        }
+        if (bestD2 < 0 || bestNet >= 0) continue;       // no improvement
+        if (!isContigAfterRemove(d, u)) continue;       // keep contiguity
+        // apply
+        const gm = tally.get(g);
+        gm.set(d, (gm.get(d) || 0) - 1);
+        gm.set(bestD2, (gm.get(bestD2) || 0) + 1);
+        asg[u] = bestD2;
+        dpop[d] -= pu; dpop[bestD2] += pu;
+        polishMoves++;
+        changed = true;
+      }
+      if (!changed) break;
     }
   }
 
