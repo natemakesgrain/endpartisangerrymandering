@@ -30,10 +30,18 @@ import { runReCom } from './lib/recom.mjs';
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const DIR = ROOT + 'public/data/precincts';
 
-// Per-census apportionment — copied from Dashboard.jsx APPORTIONMENT
-// (U.S. Census Bureau Table C1). Precinct cycles only ever touch the
-// 2000 census (2008 election) and the 2010 census (2012/2016/2020).
+// Per-census apportionment — copied verbatim from Dashboard.jsx
+// APPORTIONMENT (U.S. Census Bureau Table C1). Precinct is now the ONLY
+// substrate and covers all 13 cycles, which span FOUR censuses:
+//   2000 election → 1990 census           2002–2010 → 2000 census
+//   2012–2020 → 2010 census               2022/2024 → 2020 census
 const APPORTIONMENT = {
+  1990: { AL: 7, AK: 1, AZ: 6, AR: 4, CA: 52, CO: 6, CT: 6, DE: 1, FL: 23,
+    GA: 11, HI: 2, ID: 2, IL: 20, IN: 10, IA: 5, KS: 4, KY: 6, LA: 7,
+    ME: 2, MD: 8, MA: 10, MI: 16, MN: 8, MS: 5, MO: 9, MT: 1, NE: 3,
+    NV: 2, NH: 2, NJ: 13, NM: 3, NY: 31, NC: 12, ND: 1, OH: 19, OK: 6,
+    OR: 5, PA: 21, RI: 2, SC: 6, SD: 1, TN: 9, TX: 30, UT: 3, VT: 1,
+    VA: 11, WA: 9, WV: 3, WI: 9, WY: 1 },
   2000: { AL: 7, AK: 1, AZ: 8, AR: 4, CA: 53, CO: 7, CT: 5, DE: 1, FL: 25,
     GA: 13, HI: 2, ID: 2, IL: 19, IN: 9, IA: 5, KS: 4, KY: 6, LA: 7,
     ME: 2, MD: 8, MA: 10, MI: 15, MN: 8, MS: 4, MO: 9, MT: 1, NE: 3,
@@ -46,8 +54,14 @@ const APPORTIONMENT = {
     NV: 4, NH: 2, NJ: 12, NM: 3, NY: 27, NC: 13, ND: 1, OH: 16, OK: 5,
     OR: 5, PA: 18, RI: 2, SC: 7, SD: 1, TN: 9, TX: 36, UT: 4, VT: 1,
     VA: 11, WA: 10, WV: 3, WI: 8, WY: 1 },
+  2020: { AL: 7, AK: 1, AZ: 9, AR: 4, CA: 52, CO: 8, CT: 5, DE: 1, FL: 28,
+    GA: 14, HI: 2, ID: 2, IL: 17, IN: 9, IA: 4, KS: 4, KY: 6, LA: 6,
+    ME: 2, MD: 8, MA: 9, MI: 13, MN: 8, MS: 4, MO: 8, MT: 2, NE: 3,
+    NV: 4, NH: 2, NJ: 12, NM: 3, NY: 26, NC: 14, ND: 1, OH: 15, OK: 5,
+    OR: 6, PA: 17, RI: 2, SC: 7, SD: 1, TN: 9, TX: 38, UT: 4, VT: 1,
+    VA: 11, WA: 10, WV: 2, WI: 8, WY: 1 },
 };
-const CENSUSES = [2000, 2010];
+const CENSUSES = [1990, 2000, 2010, 2020];
 const BAKE_SEEDS = [42, 7, 1337];
 const stateSeed = (baseSeed, st) =>
   baseSeed * 1000 + st.charCodeAt(0) * 17 + st.charCodeAt(1);

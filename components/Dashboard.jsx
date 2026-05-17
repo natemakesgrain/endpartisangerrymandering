@@ -3439,42 +3439,14 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         <div style={S.tickerSub}>{(totalPop / 1e6).toFixed(1)}M people · {(totalPop / TOTAL_SEATS / 1000).toFixed(0)}K target/district</div>
       </div>
       <div style={S.headlineNote}>
-        <div style={S.tickerKicker}>DATA SUBSTRATE</div>
-        <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-          {[
-            ['model', 'Model', '2000–2024 · modeled'],
-            ['precinct', 'Precinct', "'08·'12·'16·'20 · real returns"],
-          ].map(([key, label, sub]) => {
-            const on = substrate === key;
-            return (
-              <button
-                key={key}
-                onClick={() => setSubstrate && setSubstrate(key)}
-                title={key === 'precinct'
-                  ? 'Real precinct (2020 VTD) returns — exact, but only the covered cycles & states'
-                  : 'County totals disaggregated to tracts by a density model — all cycles 2000–2024'}
-                style={{
-                  padding: '6px 10px',
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: 11,
-                  textAlign: 'left',
-                  background: on ? '#1a1a14' : 'transparent',
-                  color: on ? '#f5efe6' : '#1a1a14',
-                  border: '1px solid rgba(26,26,20,0.25)',
-                  cursor: 'pointer',
-                  lineHeight: 1.3,
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>{label}</div>
-                <div style={{ fontSize: 9, opacity: 0.75 }}>{sub}</div>
-              </button>
-            );
-          })}
+        <div style={S.tickerKicker}>PRECINCT DATA</div>
+        <div style={{ ...S.tickerSub, marginTop: 6, fontSize: 11, lineHeight: 1.4 }}>
+          {PRECINCT_YEARS.includes(year)
+            ? <><strong>Real counted precinct returns</strong> (2020-VTD geography). {year} is one of the four observed presidential precinct cycles.</>
+            : <><strong>Precinct-MODELED</strong> from county truth: each precinct's learned lean + drift vs its county, rescaled so county totals match exactly{YEAR_CONFIG.yearMeta(year)?.kind === 'midterm' ? ' (and the county figure is itself the modeled U.S.-House swing)' : ''}. The four real cycles are 2008/’12/’16/’20.</>}
         </div>
         <div style={{ ...S.tickerSub, marginTop: 4, fontSize: 10, fontStyle: 'italic' }}>
-          {substrate === 'precinct'
-            ? 'real counted votes · click a battleground state'
-            : 'density-modeled within counties · every cycle'}
+          click a state for per-district detail
         </div>
       </div>
       <div style={S.headlineNote}>
@@ -3984,7 +3956,9 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
   const [selectedState, setSelectedState] = useState(null);
   const districtingDone = !!districting;
   const precinctMode = substrate === 'precinct';
-  const allowedYears = precinctMode ? PRECINCT_YEARS : null;
+  // Precinct now covers ALL 13 cycles (4 real + 9 modeled), so every
+  // year is selectable; modeled cycles are labelled, not disabled.
+  const allowedYears = null;
 
   // ESC key closes state detail
   useEffect(() => {
@@ -4021,15 +3995,16 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
           <p style={S.sectionLede} className="r-sectionlede">
             {precinctMode ? (
               <>
-                <strong>Precinct view — all 50 states.</strong> Every district is drawn from{' '}
-                <strong>real precinct (2020 VTD) returns</strong> — actual counted votes, no
-                county-level modeling — for the {PRECINCT_YEARS.join(', ')} presidential cycles.{' '}
+                <strong>Precinct view — all 50 states, all 13 cycles.</strong> Districts are drawn on
+                the real 2020-VTD precinct graph.{' '}
+                {PRECINCT_YEARS.includes(year)
+                  ? <><strong>{year}</strong> uses <strong>real counted precinct returns</strong> — one of the four observed presidential precinct cycles (2008/’12/’16/’20).</>
+                  : <><strong>{year} is precinct-MODELED</strong>: each precinct's learned partisan lean and election-over-election drift (fit on the four observed cycles) applied to {year}'s county result and rescaled so county totals match exactly{YEAR_CONFIG.yearMeta(year)?.kind === 'midterm' ? ' — and the county figure is itself the modeled U.S.-House swing' : ''} (methodology §3.5).</>}{' '}
                 {model === 'recom'
                   ? 'ReCom is pre-run offline with the published seed'
                   : 'Shortest-splitline (deterministic — no seed) is pre-dissolved offline'}, so the
-                national map is exact and renders instantly. <strong>Click any state</strong> to
-                enlarge it and see per-district statistics; switch to the <strong>Model</strong>{' '}
-                view for all cycles 2000–2024.
+                national map renders instantly. <strong>Click any state</strong> to enlarge it and see
+                per-district statistics.
               </>
             ) : districtingDone ? (
               <>
@@ -4198,7 +4173,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // county composition (with split flags), unit count, population.
   const insight = useMemo(() => {
     if (selDist == null || !partition) return null;
-    const yrs = usePrecinct ? PRECINCT_YEARS : YEAR_CONFIG.allYears;
+    const yrs = YEAR_CONFIG.allYears; // precinct now covers all 13 cycles
     const members = [];
     const byCounty = new Map();
     const demAcc = [0, 0, 0, 0, 0, 0, 0]; // White,Black,Hisp,Asian,Native,Pac,VAP
@@ -4676,8 +4651,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           </p>
         </div>
         <div style={S.detailHeaderControls}>
-          <YearSelector year={year} setYear={setYear}
-            allowedYears={substrate === 'precinct' ? PRECINCT_YEARS : null} />
+          <YearSelector year={year} setYear={setYear} allowedYears={null} />
           <button onClick={onClose} style={S.detailClose}>← Back to national</button>
         </div>
       </div>
@@ -5806,7 +5780,14 @@ export default function USRedistrictingDashboard() {
   //             2000–2024 (the original substrate).
   // 'precinct' = real precinct (2020 VTD) returns, no modeling, only the
   //             cycles/states with precinct files (state-detail view).
-  const [substrate, setSubstrate] = useState('model');
+  // Phase 7: PRECINCT is the only substrate. Real counted VTD returns
+  // for the four presidential precinct cycles (2008/12/16/20); the other
+  // nine cycles are precinct-MODELED from county truth (see methodology
+  // / scripts/model-precinct-votes.mjs). The model/tract county engine
+  // is retained only to supply the land-clip mask + national overlays,
+  // and is otherwise dormant (substrate is constant). No toggle.
+  const substrate = 'precinct';
+  const setSubstrate = undefined;
   // Districting algorithm. 'recom' = seeded ReCom Markov chain (random,
   // published seed). 'seedgrow' = deterministic metro-anchored
   // seed-and-grow. 'splitline' = deterministic shortest-splitline. The
@@ -5864,26 +5845,14 @@ export default function USRedistrictingDashboard() {
     if (!DEFAULT_SEEDS.has(s)) setEngaged(true);
     setSeed(s);
   };
-  const handleSetSubstrate = (s) => {
-    if (s === substrate) return;
-    if (s === 'precinct') {
-      setEngaged(true); // precinct never uses the model pre-render images
-      // Snap to the nearest covered presidential cycle.
-      if (!PRECINCT_YEARS.includes(year)) {
-        const near = PRECINCT_YEARS.reduce((a, b) =>
-          Math.abs(b - year) < Math.abs(a - year) ? b : a);
-        setYear(near);
-      }
-    }
-    setSubstrate(s);
-  };
+  // (substrate toggle removed — precinct is the only substrate)
 
   return (
     <div style={S.app}>
       <style>{globalCSS}</style>
       <Header />
       <section style={S.headlineSection}>
-        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={handleSetSubstrate} model={model} setModel={setModel} />
+        <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={undefined} model={model} setModel={setModel} />
       </section>
       <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} substrate={substrate} model={model} />
       <Footer />
