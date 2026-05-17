@@ -4,16 +4,20 @@ A static, deployable demonstration of algorithmic congressional redistricting.
 
 Three pages, all client-rendered:
 
-- `/` — interactive dashboard. ReCom Markov chain draws all 435 congressional districts across all 50 states from real county/tract geography. Click any state to drop into a tract-level zoom.
-- `/methodology` — technical overview, citations, data sources.
+- `/` — interactive dashboard. Two neutral partitioners draw all 435 congressional districts across all 50 states from real geography: **shortest-splitline** (deterministic, no seed — the default) and **ReCom** (a seeded Markov chain, optional). Click any state to drop into a tract/precinct-level zoom.
+- `/methodology` — technical overview, citations, data sources, honest-limitations section.
 - `/legislation` — proposed federal statute + constitutional amendment.
 
-The dashboard supports **seven presidential election years** (2000, 2004, 2008, 2012, 2016, 2020, 2024) with **real county-level returns** from the MIT Election Data and Science Lab via the [stiles/presidential-elections](https://github.com/stiles/presidential-elections) compilation. Switching years is instant (the partition is year-independent; only the per-district vote tallies change).
+**Two algorithms.** Shortest-splitline (Warren D. Smith) is the default: a recursive shortest-line population-quantile bisection plus a deterministic contiguity-preserving rebalance — no seed, fully reproducible from geography alone. ReCom (DeFord–Duchin–Solomon 2021) is the optional seeded sampler; reseed for a different valid neutral map. The methodology page (§4.8/§4.9) compares them honestly.
 
-Population variance is shown in the UI in real time:
+**Two substrates.** *Model* — counties → 2020 census tracts, with within-county partisanship modeled by population density; covers all **13 cycles** (7 presidential with real MIT-EDSL county returns: 2000/04/08/12/16/20/24, plus 6 *modeled* midterms: 2002/06/10/14/18/22, labeled "MODELED"). *Precinct* — real 2020-VTD returns from Dave's Redistricting `vtd_data`, no modeling, for the four precinct cycles (2008/2012/2016/2020).
 
-- **National view** (county-fragment substrate): typically ±5 % in 25–30 of the 44 multi-seat states, with worse outliers in California / Texas / New York / Pennsylvania where county granularity is too coarse for tight balance.
-- **State-detail view** (tract substrate, opens on state click): consistently within ±1 % across all states. This is the substrate the algorithm uses to meet the legal target.
+**Apportionment is per-decade in the state-detail view.** A state is split into the number of districts its *governing census* assigned for that cycle (1990→2000 elections, 2000→2002-2010, 2010→2012-2020, 2020→2022-2024). The 50-state national overview intentionally stays at 2020 apportionment for both substrates (see methodology §2). So switching years is *not* a pure recolor — the state-detail district count changes by decade.
+
+Population deviation is shown in the UI in real time:
+
+- **Shortest-splitline (default):** the quantile cut + deterministic bidirectional rebalance reaches ≈1–2 % worst-district even on the hardest states (measured: TX 1.8 %, CA 1.3 %, NC 0.8 %). It is a bounded greedy pass, not a hard ±ε proof — the state-detail header always reports that map's *real* worst-district deviation.
+- **ReCom:** the ±5 % bound is *enforced* by a polish loop + multi-seed retry; the auto-upgrade-to-tract pipeline delivers 44/44 multi-seat states inside ±5 % (typically 1–3 %).
 
 ---
 
@@ -74,17 +78,29 @@ To regenerate the per-year files:
 node scripts/build-historical-votes.mjs
 ```
 
-This reads `data-cache/stiles_county.json` (downloaded once on first run, then cached) and writes `public/data/votes/<YEAR>.json` for each year we cover. The 2016/2020/2024 files are preserved as-is — they were sourced separately and verified to match published official totals.
+This reads `data-cache/stiles_county.json` (downloaded once on first run, then cached) and writes `public/data/votes/<YEAR>.json` for each presidential year. The 2016/2020/2024 files are preserved as-is — sourced separately and verified to match published official totals. Modeled midterms: `node scripts/build-midterm-votes.mjs`.
+
+Precinct substrate data is built separately from Dave's Redistricting `vtd_data`:
+
+```bash
+node scripts/build-precincts.mjs        # download + simplify + ReCom-bake + dissolve
+node scripts/add-demographics.mjs       # merge 2020 P.L. race/VAP (fast attribute merge)
+node scripts/add-splitline-national.mjs # merge deterministic Splitline dissolve (no re-download)
+```
+
+`scripts/lib/{recom,partition}.mjs` are **auto-extracted** from `components/Dashboard.jsx` by `_extract_recom.mjs` / `_extract_partition.mjs` so the offline bake runs the *exact* in-app algorithm — re-run the extractors after editing those blocks.
 
 ---
 
 ## What this dashboard does NOT cover
 
-**Midterm House election years (2006, 2010, 2014, 2018, 2022) are not included.** U.S. House results are reported by congressional district, not county, and counties can be split between multiple districts. There is no unified national county-level dataset for U.S. House returns. Adding midterms would require aggregating the MIT EDSL precinct-level dataset (2016+) up to the county level via a precinct→county crosswalk — a separate data-engineering effort.
+**Midterm cycles are MODELED, not measured.** The six midterm cycles (2002/06/10/14/18/22) *are* in the dashboard but are modeled: U.S. House results are reported by district (not county), so there is no unified national county-level House dataset. Each state's real two-party U.S. House aggregate (MIT EDSL) is applied as a per-state logit swing to the nearest presidential year's county pattern, rescaled to match the state House total. Midterm rows are labeled **"MODELED"** in the headline so the substrate is never ambiguous. The seven presidential cycles use real county-level returns.
 
-**The county-level national view is approximate.** Many states (CA, TX, NY, NJ, PA, OH, NV, AZ) can't be balanced to within ±5 % using counties + slab-cut fragments alone, because a small number of metropolitan counties dominate the population. The state-detail view, which uses 2020 Decennial Census tracts (~3,500 people each), achieves ±1 % balance for those states.
+**Tract-level partisanship (model substrate) is modeled.** No federal authority publishes precinct→tract election crosswalks, so county votes are disaggregated to tracts by a population-density logit model, rescaled per-county-per-year to the official county totals exactly (methodology §3.4). The **precinct substrate** avoids this entirely — it is real counted 2020-VTD returns. Also: the bundled tract geometry is mapshaper-simplified, so tract populations are renormalized per county to the authoritative 2020 P1 county totals.
 
-**Districts are drawn using the actual ReCom algorithm with a public seed** (default seed = 42, reseedable in the UI). The implementation follows DeFord–Duchin–Solomon (2021). Different seeds produce different valid neutral maps — that's the point. There is no single "fair" map; there is a *distribution* of valid maps and a published seed picks one reproducibly.
+**The national overview is an approximation of scope, by design.** It stays at 2020 apportionment and (for the model substrate) county-fragment-to-tract granularity; the per-decade, tract/precinct-exact districting is the state-detail view. This is documented, not a bug.
+
+**Two neutral algorithms; the default is deterministic.** Shortest-splitline (the default) needs *no seed* — the same geography always yields the same map. ReCom is the optional seeded sampler (default seed = 42, reseedable); different seeds produce different valid neutral maps. There is no single "fair" map — there is a *distribution* of valid maps (ReCom samples it) or a single canonical deterministic one (splitline). Neither consumes partisan or incumbency data.
 
 ---
 
@@ -97,33 +113,34 @@ site/
 │   ├── methodology/page.tsx  # /methodology
 │   └── legislation/page.tsx  # /legislation
 ├── components/
-│   ├── Dashboard.jsx         # the big one — ReCom + map renderer
+│   ├── Dashboard.jsx         # the big one — splitline/ReCom partitioners + map renderer
 │   ├── Nav.tsx
 │   ├── Footer.tsx
 │   └── Prose.tsx
 ├── content/
-│   ├── methodology.md
+│   ├── methodology.md        # kept in sync with the implementation (the project's ethos)
 │   └── legislation.md
 ├── public/
 │   └── data/
 │       ├── populations.json     # 2020 Decennial P1 county pops (3,143 counties)
 │       ├── votes/
-│       │   ├── 2000.json        # county-level D/R/total per year
-│       │   ├── 2004.json
-│       │   ├── 2008.json
-│       │   ├── 2012.json
-│       │   ├── 2016.json
-│       │   ├── 2020.json
-│       │   └── 2024.json
-│       └── tracts/
-│           ├── 01.json          # per-state 2020 tract topojson + P1 pops
-│           ├── 02.json
-│           └── ... (51 files, ~29 MB total)
+│       │   ├── 2000.json … 2024.json   # county D/R/total, 13 cycles
+│       │   │                           # (7 presidential real, 6 midterm modeled)
+│       ├── tracts/
+│       │   └── 01.json … (51 files, ~29 MB) per-state 2020 tract topojson + P1 pops
+│       └── precincts/
+│           ├── 48.json          # full per-state DRA 2020-VTD returns + adjacency + dm
+│           └── 48-districts.json# tiny: dissolved district polys per ReCom seed
+│                                # AND a deterministic `splitline` block
 ├── scripts/
-│   ├── build-historical-votes.mjs
-│   └── transform-dashboard.mjs  # one-shot transform used to convert
-│                                # the inline-data Dashboard into the
-│                                # dynamic-load version. Idempotent.
+│   ├── build-historical-votes.mjs   # presidential county votes
+│   ├── build-midterm-votes.mjs      # modeled midterm county votes
+│   ├── build-precincts.mjs          # DRA vtd_data → precinct json + ReCom bake/dissolve
+│   ├── add-demographics.mjs         # merge 2020 P.L. race/VAP into precinct json
+│   ├── add-splitline-national.mjs   # merge deterministic Splitline dissolve into -districts.json
+│   ├── _extract_recom.mjs           # extract ReCom block → lib/recom.mjs (keep in sync)
+│   ├── _extract_partition.mjs       # extract partitioner block → lib/partition.mjs
+│   └── lib/{recom,partition}.mjs    # the extracted pure modules the pipeline imports
 ├── data-cache/
 │   └── stiles_county.json       # cached upstream source for refresh
 ├── netlify.toml

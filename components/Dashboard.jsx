@@ -3315,9 +3315,22 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
     );
   }
   let totD = 0, totR = 0, totalPop = 0;
-  for (const u of data.units) {
-    if (u.votes[year]) { totD += u.votes[year].d; totR += u.votes[year].r; }
-    totalPop += u.pop;
+  for (const u of data.units) totalPop += u.pop; // US pop baseline (substrate-agnostic)
+  if (substrate === 'precinct' && districting && districting.partitions
+      && Object.keys(districting.partitions).length) {
+    // Precinct view: report the REAL counted precinct popular vote (sum
+    // of the dissolved district returns), not the model county estimate
+    // — so the headline vote matches the substrate the seats came from.
+    for (const p of Object.values(districting.partitions)) {
+      for (const u of (p.renderUnits || p.units || [])) {
+        const v = u.votes && u.votes[year];
+        if (v) { totD += v.d; totR += v.r; }
+      }
+    }
+  } else {
+    for (const u of data.units) {
+      if (u.votes[year]) { totD += u.votes[year].d; totR += u.votes[year].r; }
+    }
   }
   const dPct = totD + totR > 0 ? (100 * totD / (totD + totR)).toFixed(1) : '—';
   const rPct = totD + totR > 0 ? (100 * totR / (totD + totR)).toFixed(1) : '—';
@@ -3608,7 +3621,7 @@ function Legend() {
   const swatches = [0.30, 0.38, 0.46, 0.50, 0.54, 0.62, 0.70];
   return (
     <div style={S.legend}>
-      <div style={S.legendCaption}>county D-share, two-party</div>
+      <div style={S.legendCaption}>district D-share, two-party</div>
       <div style={S.legendSwatches}>
         {swatches.map((s, i) => (
           <div key={i} style={{ ...S.legendSwatch, background: shareToColor(s) }} />
@@ -4615,7 +4628,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           <div style={S.kicker}>STATE DETAIL · {stateCode}</div>
           <h2 style={S.sectionTitle}>{sg.name}</h2>
           <p style={{ ...S.sectionLede, marginBottom: 0 }} className="r-sectionlede">
-            {k} congressional districts · {stateUnits.length.toLocaleString()}{' '}
+            {k || seats} congressional districts · {stateUnits.length.toLocaleString()}{' '}
             {usePrecinct ? 'voting precincts · real ' + year + ' returns'
               : useTracts ? 'census tracts' : 'county units'} · max population deviation{' '}
             <span style={{ color: maxDev <= 0.01 ? '#1a1a14' : maxDev <= 0.05 ? '#1a1a14' : '#c44536', fontWeight: 600 }}>
