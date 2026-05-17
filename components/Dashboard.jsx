@@ -442,21 +442,68 @@ function pathFromBoundaryEdges(edges, excludeEdges) {
 // districts. Winding-insensitive + 0.1-unit key tolerance → no dropped
 // sides, no gaps. Returns one path string for the whole unit set.
 function meshBorderPath(units, assignment) {
-  const seg = new Map();
   const r = (v) => Math.round(v * 10) / 10;
+  // Pass 1: bucket every rounded ring vertex into a 1-unit grid (NODE
+  // set). The bundled tract polygons don't share clean topology — one
+  // unit draws a boundary A→C while its different-district neighbour
+  // draws A→B→C — so a plain shared-segment mesh keys those apart and
+  // the border has gaps ("separation"). Noding the edges fixes it.
+  const cell = new Map();
+  const seen = new Set();
+  for (let i = 0; i < units.length; i++) {
+    if (assignment[i] < 0) continue;
+    for (const poly of units[i].polygons) for (const ring of poly) {
+      for (let j = 0; j < ring.length; j++) {
+        const x = r(ring[j][0]), y = r(ring[j][1]);
+        const nk = x + ',' + y;
+        if (seen.has(nk)) continue;
+        seen.add(nk);
+        const ck = Math.floor(x) + ',' + Math.floor(y);
+        let arr = cell.get(ck); if (!arr) cell.set(ck, (arr = []));
+        arr.push([x, y]);
+      }
+    }
+  }
+  const seg = new Map();
+  const add = (ax, ay, bx, by, d) => {
+    if (ax === bx && ay === by) return;
+    const key = (ax < bx || (ax === bx && ay <= by))
+      ? `${ax},${ay},${bx},${by}` : `${bx},${by},${ax},${ay}`;
+    let s = seg.get(key);
+    if (!s) { s = { x1: ax, y1: ay, x2: bx, y2: by, ds: new Set() }; seg.set(key, s); }
+    s.ds.add(d);
+  };
   for (let i = 0; i < units.length; i++) {
     const d = assignment[i];
     if (d < 0) continue;
     for (const poly of units[i].polygons) for (const ring of poly) {
       for (let j = 0, n = ring.length; j < n; j++) {
-        const A = ring[j], B = ring[(j + 1) % n];
-        const ax = r(A[0]), ay = r(A[1]), bx = r(B[0]), by = r(B[1]);
+        const ax = r(ring[j][0]), ay = r(ring[j][1]);
+        const bx = r(ring[(j + 1) % n][0]), by = r(ring[(j + 1) % n][1]);
         if (ax === bx && ay === by) continue;
-        const key = (ax < bx || (ax === bx && ay <= by))
-          ? `${ax},${ay},${bx},${by}` : `${bx},${by},${ax},${ay}`;
-        let s = seg.get(key);
-        if (!s) { s = { x1: ax, y1: ay, x2: bx, y2: by, ds: new Set() }; seg.set(key, s); }
-        s.ds.add(d);
+        const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+        const pts = [];
+        const cx0 = Math.floor(Math.min(ax, bx)), cx1 = Math.floor(Math.max(ax, bx));
+        const cy0 = Math.floor(Math.min(ay, by)), cy1 = Math.floor(Math.max(ay, by));
+        for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+          const arr = cell.get(cx + ',' + cy);
+          if (!arr) continue;
+          for (const [px, py] of arr) {
+            const t = ((px - ax) * dx + (py - ay) * dy) / L2;
+            if (t <= 1e-4 || t >= 1 - 1e-4) continue;
+            const cross = dx * (py - ay) - dy * (px - ax);
+            if (cross * cross > 0.0036 * L2) continue;
+            pts.push([t, px, py]);
+          }
+        }
+        if (pts.length) {
+          pts.sort((p, q) => p[0] - q[0]);
+          let px = ax, py = ay;
+          for (const [, qx, qy] of pts) { add(px, py, qx, qy, d); px = qx; py = qy; }
+          add(px, py, bx, by, d);
+        } else {
+          add(ax, ay, bx, by, d);
+        }
       }
     }
   }
@@ -3588,6 +3635,29 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
   // tract polygons (with density-based per-tract D-share) so the national
   // view matches the state-detail view. For not-yet-upgraded states we
   // fall back to county-fragment rendering.
+  // Per-state DISPLAY assignment: the true partition with genuine
+  // marooned specks absorbed into the district that geometrically
+  // surrounds them — the same render-only, balance-neutral fix the
+  // state-detail view uses, so the national Splitline map doesn't show
+  // off-colour speck dots / stray speck border loops. The true
+  // partition still drives every reported number (this clone feeds
+  // only the fill colour + the mesh border).
+  const displayAsnByState = useMemo(() => {
+    const m = {};
+    if (districting) {
+      for (const [code, p] of Object.entries(districting.partitions)) {
+        if (!p.partition) continue;
+        const units = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits)
+          ? p.renderUnits : p.units;
+        if (!units || !units.length) continue;
+        const a = Int16Array.from(p.partition.assignment);
+        geometricSpeckFix(units, a, p.partition.districtPop.length);
+        m[code] = a;
+      }
+    }
+    return m;
+  }, [districting]);
+
   const unitPaths = useMemo(() => {
     // Consolidated view: every unit is filled by ITS DISTRICT's aggregate
     // two-party D-share (so each district is ONE solid colour) and carries
@@ -3605,7 +3675,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
         if (!units || !units.length) continue;
         const results = computeDistrictResults(units, p.partition, year);
         const colorByD = results.map((r) => shareToColor(r.dShare));
-        const asn = p.partition.assignment;
+        const asn = displayAsnByState[code] || p.partition.assignment;
         const stEls = [];
         for (let i = 0; i < units.length; i++) {
           const u = units[i];
@@ -3640,7 +3710,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
       elements.push(<path key={u.id} d={u.pathD} fill={c} stroke={c} strokeWidth="0.05" />);
     }
     return elements;
-  }, [data, year, districting]);
+  }, [data, year, districting, displayAsnByState]);
 
   // District outlines: traced once per state's partition. Heavy compute,
   // but the result depends only on `districting` so the memo holds across
@@ -3653,12 +3723,13 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
       if (!partition) continue;
       const units = ((p.substrate === 'tract' || p.substrate === 'precinct') && p.renderUnits) ? p.renderUnits : p.units;
       if (!units || !units.length) continue;
-      // One robust mesh border per state (undirected → no dropped sides).
-      const pathD = meshBorderPath(units, partition.assignment);
+      // One robust NODED mesh border per state (undirected, gap-free)
+      // over the speck-absorbed display assignment.
+      const pathD = meshBorderPath(units, displayAsnByState[code] || partition.assignment);
       if (pathD) out.push({ key: code, pathD, slabPathD: '', substrate: p.substrate });
     }
     return out;
-  }, [districting]);
+  }, [districting, displayAsnByState]);
 
   // State-level interactive overlays. Each state renders THREE elements:
   // (1) a thick dark outline as a visible "shadow" of the state border,
