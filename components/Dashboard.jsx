@@ -1711,19 +1711,32 @@ function buildPrecinctUnits(pj, stateCode) {
     idIdx.set(p.id, i);
     units[i] = u;
   }
-  // Per-county (precinct id prefix = 5-digit county FIPS) two-party
-  // aggregate per year, then stamp it onto every precinct as
-  // parentDShare. Vote-less precincts — open-water / park / zero-pop
-  // VTDs that DRA still ships as polygons (very common in Great-Lakes
-  // states) — then colour by their county context via the SAME
-  // unitColorForYear fallback the model substrate uses, instead of
-  // rendering as grey #ddd patches. This is the precinct analogue of
-  // the tracts' parentDShare and removes the "weird water" the user
-  // saw under the precinct view (the model substrate never had it
-  // because its tracts already carry parentDShare).
+  // Two passes over the DRA VTDs:
+  //  (a) WATER / non-territory flag. DRA ships open-water, Great-Lakes
+  //      and other uninhabited polygons as zero-population, never-voted
+  //      VTDs. The model substrate doesn't have these (its tracts are
+  //      land, so lakes are simply uncovered cream canvas inside the
+  //      state outline). To make precinct match, mark them `isWater`
+  //      and the renderer skips them entirely — fill, border mesh and
+  //      hit region — so water reads as the same neutral negative space
+  //      as the model view rather than coloured district territory.
+  //      They are pop 0 with no votes, so excluding them changes no
+  //      reported number.
+  //  (b) For the remaining vote-less BUT inhabited precincts (a real
+  //      precinct that simply has no return a given year), stamp the
+  //      county's D-share as parentDShare so unitColorForYear colours
+  //      them by county context — exactly the model substrate's
+  //      pop-zero-land behaviour.
   {
     const cAgg = new Map(); // fips → { [yr]: [d, r] }
     for (const u of units) {
+      let everVoted = false;
+      for (const yr of YEAR_CONFIG.allYears) {
+        const v = u.votes[yr];
+        if (v && (v.d + v.r) > 0) { everVoted = true; break; }
+      }
+      u.isWater = (u.pop || 0) === 0 && !everVoted;
+      if (u.isWater) continue; // don't let water skew county aggregates
       let m = cAgg.get(u.fips); if (!m) cAgg.set(u.fips, (m = {}));
       for (const yr of YEAR_CONFIG.allYears) {
         const v = u.votes[yr];
@@ -4134,6 +4147,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     for (let i = 0; i < stateUnits.length; i++) {
       const d = displayAssignment[i];
       if (d < 0 || d >= k) continue;
+      if (stateUnits[i].isWater) continue; // water → not clickable territory
       const pd = stateUnits[i].pathD;
       if (pd) acc[d] += pd;
     }
@@ -4162,7 +4176,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     const cell = new Map(); // "cx,cy" → [[x,y],...] unique nodes
     const seenNode = new Set();
     for (let i = 0; i < stateUnits.length; i++) {
-      if (displayAssignment[i] < 0) continue;
+      if (displayAssignment[i] < 0 || stateUnits[i].isWater) continue;
       for (const poly of stateUnits[i].polygons) for (const ring of poly) {
         for (let j = 0; j < ring.length; j++) {
           const x = r(ring[j][0]), y = r(ring[j][1]);
@@ -4187,7 +4201,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     };
     for (let i = 0; i < stateUnits.length; i++) {
       const d = displayAssignment[i];
-      if (d < 0) continue;
+      if (d < 0 || stateUnits[i].isWater) continue;
       for (const poly of stateUnits[i].polygons) for (const ring of poly) {
         for (let j = 0, n = ring.length; j < n; j++) {
           const ax = r(ring[j][0]), ay = r(ring[j][1]);
@@ -4259,7 +4273,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       // tract-level district in a dense metro area).
       let cxAcc = 0, cyAcc = 0, popAcc = 0;
       for (let i = 0; i < stateUnits.length; i++) {
-        if (displayAssignment[i] !== d) continue;
+        if (displayAssignment[i] !== d || stateUnits[i].isWater) continue;
         const u = stateUnits[i];
         polys.push(u.polygons);
         const w = u.pop || 1;
@@ -4535,8 +4549,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
           >
-            {/* Layer 1: counties colored by their own D-share */}
-            {stateUnits.map((u) => (
+            {/* Layer 1: units colored by their own D-share. Precinct
+                water/non-territory VTDs (pop 0, never voted) are NOT
+                drawn — leaving clean cream canvas inside the state
+                outline, exactly like the model substrate where lakes
+                are simply uncovered. */}
+            {stateUnits.map((u) => (usePrecinct && u.isWater) ? null : (
               <path
                 key={u.id}
                 d={u.pathD}
