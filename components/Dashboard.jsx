@@ -4094,12 +4094,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   const countyUnits = data.unitsByState[stateCode] || [];
   const stateRecord = districting.partitions[stateCode];
   const countyPartition = stateRecord?.partition;
-  // Per-decade apportionment: the enlarged state view splits the state
-  // into the number of districts the cycle's census actually gave it
-  // (e.g. TX = 32 in 2004, 36 in 2014, 38 in 2022). The national
-  // overview stays on 2020 apportionment (sg.seats); see methodology §2.
+  // Per-decade apportionment: the state is split into the number of
+  // districts the cycle's governing census actually gave it (TX = 32 in
+  // 2004, 36 in 2014, 38 in 2022; MT = 1 in 2020, 2 in 2022). The
+  // NATIONAL engine is now per-decade too (keyed by census), so its
+  // partition for this state already has this same district count.
   const seats = sg ? seatsForState(stateCode, year) : 0;
-  const nationalSeats = sg ? sg.seats : 0;
   const baseSeed = districting.seed;
 
   // Precinct view: real precinct (2020 VTD) returns for this state, if a
@@ -4110,15 +4110,14 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     useStatePrecinctPartition(stateCode, data, seats, baseSeed, precinctCovered, model);
   const precinctReady = precinctCovered && precStage === 'ready' && precPartition && precinctData;
 
-  // Reuse the national tract partition only when it was computed with the
-  // SAME model (the national engine runs 'recom'); for seedgrow/splitline
-  // the state recomputes locally so switching models actually re-draws.
-  // ...but only when the cycle's apportionment matches the national
-  // (2020) one — otherwise the shared partition has the wrong district
-  // count for this decade and we must recompute locally at `seats`.
+  // Reuse the national tract partition only when it was computed with
+  // the SAME model (national runs the selected model) AND the SAME
+  // per-decade district count (national is keyed by census, so for the
+  // viewed year stateRecord.seats already equals `seats` — guard on it
+  // so a still-streaming other-decade record can't be mis-reused).
   const sharedTractReady =
-    !precinctCovered && model === 'recom' && seats === nationalSeats &&
-    stateRecord && stateRecord.substrate === 'tract' && stateRecord.renderUnits;
+    !precinctCovered && model === 'recom' && stateRecord && stateRecord.seats === seats &&
+    stateRecord.substrate === 'tract' && stateRecord.renderUnits;
 
   // Otherwise, run our own tract-level partition (falls back to county
   // while loading). Skipped entirely while precinct is active.
@@ -5220,8 +5219,14 @@ function usePrerendered(seed, active) {
 // default seed at the default year, pre-engagement). The engine — and the
 // ≈29 MB tract download + ~28 s of buildTractUnits/adjacency it triggers —
 // stays completely idle until the user engages.
-function useDistricting(data, seed, tolerance = 0.05, active = true, model = 'recom') {
-  const key = data ? `${seed}_${tolerance}_${model}` : null;
+function useDistricting(data, seed, tolerance = 0.05, active = true, model = 'recom', year = YEAR_CONFIG.defaultYear) {
+  // Per-decade apportionment applies NATIONALLY too (not just state-
+  // detail): the partition's district counts are fixed by the cycle's
+  // governing census, so the cache key includes that census and the
+  // engine recomputes when the user crosses a decade boundary (within a
+  // decade the same partition is just recoloured by the year's votes).
+  const census = apportionmentCensusForYear(year);
+  const key = data ? `${seed}_${tolerance}_${model}_${census}` : null;
   const [result, setResult] = useState(() => key ? CACHED_DISTRICTING.get(key) || null : null);
   const [progress, setProgress] = useState(null);
 
@@ -5239,10 +5244,10 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
     (async () => {
       // Fast path: if this seed was pre-computed at build time, load the
       // cached partitions (skips both ReCom passes) and we're done.
-      // The committed seed caches are ReCom-baked, so only use them for
-      // the ReCom model; Splitline is deterministic and fast enough to
-      // just compute live.
-      const fromCache = model === 'recom'
+      // The committed seed caches are ReCom-baked AT 2020 apportionment,
+      // so only use them for the ReCom model in the 2020-census decade
+      // (2022/2024); every other model/decade computes live.
+      const fromCache = (model === 'recom' && census === 2020)
         ? await tryLoadCachedSeed(
             seed, tolerance, data,
             (p) => { if (!cancelled) setProgress(p); },
@@ -5264,8 +5269,9 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
         if (cancelled) return;
         const code = stateCodes[i];
         const sg = data.stateGeom[code];
+        const stateSeats = seatsForState(code, year); // per-decade apportionment
         const stateUnits = data.unitsByState[code] || [];
-        if (stateUnits.length === 0 || sg.seats === 0) continue;
+        if (stateUnits.length === 0 || stateSeats === 0) continue;
         // Build state-local adjacency
         const idxInState = new Map();
         for (let j = 0; j < stateUnits.length; j++) idxInState.set(data.idIdx.get(stateUnits[j].id), j);
@@ -5301,7 +5307,7 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
           // burnIn grows with state size AND attempt number. Later attempts
           // get longer burn-in so the chain has more chances to find a good
           // initial partition before polish takes over.
-          const baseBurnIn = Math.max(120, Math.min(400, sg.seats * 14));
+          const baseBurnIn = Math.max(120, Math.min(400, stateSeats * 14));
           const dynamicBurnIn = baseBurnIn + attempt * 60;
           // Compactness schedule (graph isoperimetric ratio = cross-edges /
           // smaller-piece-size). The thresholds are SHARPLY tighter than
@@ -5318,7 +5324,7 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
             attempt <= 3 ? 1.2 :
             attempt <= 6 ? 2.0 :
             Infinity;
-          const part = runReCom(stateUnits, stateAdj, sg.seats, stateSeed, {
+          const part = runReCom(stateUnits, stateAdj, stateSeats, stateSeed, {
             burnIn: dynamicBurnIn, tolerance, compactness,
           });
           if (!part) continue;
@@ -5340,7 +5346,7 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
           }
           // Each cross-edge double-counted. Normalize by k for a
           // size-independent score.
-          const meanCutPerDistrict = totalCross / (2 * sg.seats);
+          const meanCutPerDistrict = totalCross / (2 * stateSeats);
           part._compactness = meanCutPerDistrict;
           // Selection rule:
           //   - Strictly prefer partitions with maxDev ≤ tolerance over
@@ -5367,7 +5373,7 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
           // selected model instead of always showing ReCom.
           setProgress({ done: i, total: stateCodes.length, code });
           await new Promise((r) => setTimeout(r, 0));
-          const part = runPartition(model, stateUnits, stateAdj, sg.seats, 0);
+          const part = runPartition(model, stateUnits, stateAdj, stateSeats, 0);
           if (part) {
             const tgt = part.districtPop.reduce((s, p) => s + p, 0) / part.districtPop.length;
             let md = 0;
@@ -5377,13 +5383,13 @@ function useDistricting(data, seed, tolerance = 0.05, active = true, model = 're
         }
         const partition = best;
         partitions[code] = {
-          partition, units: stateUnits, name: sg.name, seats: sg.seats,
+          partition, units: stateUnits, name: sg.name, seats: stateSeats,
           maxDev: bestDev,
           compactness: best?._compactness,
         };
         if (typeof console !== 'undefined') {
           console.log('[redistricting]', code,
-            'seats=' + sg.seats,
+            'seats=' + stateSeats,
             'units=' + stateUnits.length,
             'maxDev=' + (bestDev * 100).toFixed(2) + '%',
             'meanCut/d=' + (best?._compactness ?? 0).toFixed(2));
@@ -5798,7 +5804,7 @@ export default function USRedistrictingDashboard() {
   // partitions), so the model engine — and its ~28 s tract pipeline +
   // ~29 MB download — is switched OFF entirely while precinct is active.
   const { districting, districtingProgress } = useDistricting(
-    data, seed, 0.05, !prerenderMode && substrate !== 'precinct', model
+    data, seed, 0.05, !prerenderMode && substrate !== 'precinct', model, year
   );
   // National precinct substrate — all 50 states, pre-baked → instant.
   const { precinctPartitions, precinctProgress } =
