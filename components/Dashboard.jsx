@@ -4282,7 +4282,6 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     for (let i = 0; i < stateUnits.length; i++) {
       const d = displayAssignment[i];
       if (d < 0 || d >= k) continue;
-      if (stateUnits[i].isWater) continue; // water → not clickable territory
       const pd = stateUnits[i].pathD;
       if (pd) acc[d] += pd;
     }
@@ -4311,6 +4310,11 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     const cell = new Map(); // "cx,cy" → [[x,y],...] unique nodes
     const seenNode = new Set();
     for (let i = 0; i < stateUnits.length; i++) {
+      // Skip ZZ water from the EXPENSIVE noded mesh only (perf: MI's
+      // Great-Lakes ZZ are 36% of the state's vertices). Their fill
+      // still renders (Layer 1) and the land-clip removes true water;
+      // the only loss is a hairline district-border gap through a
+      // ZZ polygon, always in uninhabited interior — acceptable.
       if (displayAssignment[i] < 0 || stateUnits[i].isWater) continue;
       for (const poly of stateUnits[i].polygons) for (const ring of poly) {
         for (let j = 0; j < ring.length; j++) {
@@ -4713,12 +4717,15 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 model substrate's clean negative space in every state.
                 The state outline + labels below stay UNclipped. */}
             <g clipPath={usePrecinct && landClipD ? `url(#pclip-${stateCode})` : undefined}>
-            {/* Layer 1: units colored by their own D-share. Precinct
-                water/non-territory VTDs (pop 0, never voted) are NOT
-                drawn — leaving clean cream canvas inside the state
-                outline, exactly like the model substrate where lakes
-                are simply uncovered. */}
-            {stateUnits.map((u) => (usePrecinct && u.isWater) ? null : (
+            {/* Layer 1: units colored by their own D-share. Water is
+                NOT special-cased here — every unit is drawn and the
+                <g clip-path> below clips the whole precinct layer to
+                the model county land geometry, so true open water /
+                Great-Lakes / bay area is removed UNIVERSALLY (the only
+                reliable signal) while uninhabited LAND (Everglades, UT
+                desert, BLM/federal) stays, coloured by county context
+                — exactly the model substrate. */}
+            {stateUnits.map((u) => (
               <path
                 key={u.id}
                 d={u.pathD}
