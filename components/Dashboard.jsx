@@ -1279,6 +1279,48 @@ function buildTractUnits(topology, stateCode, countyData) {
     if (!countyDensities.has(countyFips)) countyDensities.set(countyFips, []);
     if (density > 0) countyDensities.get(countyFips).push(density);
   }
+  // ---- Per-county population normalization -----------------------------
+  // The tract topojson is mapshaper-simplified: ~20-25 % of small tracts
+  // are dropped and ~25 % of survivors carry pop 0, so raw tract pop sums
+  // to roughly half the true state total for large states (TX: 16.1M vs
+  // 29.2M). That wrecks any equal-population partition. Fix it the same
+  // way §3.4 fixes votes: rescale every county's tracts so they sum to
+  // that county's authoritative P1 total (POPULATIONS, the same county
+  // figures the national map uses). Within-county distribution is kept;
+  // dropped/zeroed tracts' population is absorbed proportionally by the
+  // survivors. A county whose tracts are ALL zero is filled area-weighted.
+  {
+    const countyTracts = new Map(); // fips → [decoded tract,...]
+    for (const t of decoded) {
+      let a = countyTracts.get(t.countyFips);
+      if (!a) countyTracts.set(t.countyFips, (a = []));
+      a.push(t);
+    }
+    for (const [fips, ts] of countyTracts) {
+      const trueCP = POPULATIONS[fips] || 0;
+      if (trueCP <= 0) continue; // no authoritative figure → leave as-is
+      let rawCP = 0;
+      for (const t of ts) rawCP += t.pop;
+      if (rawCP > 0) {
+        const scale = trueCP / rawCP;
+        for (const t of ts) t.pop = Math.round(t.pop * scale);
+      } else {
+        // All tracts zero/missing: spread the county total by area.
+        let areaSum = 0;
+        for (const t of ts) areaSum += t.area;
+        for (const t of ts) {
+          t.pop = areaSum > 0
+            ? Math.round(trueCP * (t.area / areaSum))
+            : Math.round(trueCP / ts.length);
+        }
+      }
+      // Downstream vote disaggregation reads parentCountyTractPop as the
+      // per-county denominator; keep it consistent with the rescaled pops
+      // (Σ tractPopFrac stays 1, turnout estimate gets more accurate).
+      parentCountyTractPop.set(fips, trueCP);
+    }
+  }
+
   // Median density per county. For counties with all-zero-pop tracts we set
   // 0 and skip the dLean shift entirely.
   const countyMedianDensity = new Map();
@@ -2733,93 +2775,80 @@ function stillConnected(adjacency, assignment, dist, drop) {
   }
   return vis === count;
 }
-// Greedy contiguity-preserving population rebalance: move boundary units
-// from the most over-target district to an adjacent under-target one while
-// both stay connected. Deterministic, bounded.
+// Greedy, contiguity-preserving, BIDIRECTIONAL population rebalance: each
+// step takes the district whose population is furthest from target (in
+// EITHER direction) and either sheds a boundary unit to a needier
+// neighbour (when over) or annexes a bordering unit from a fuller
+// neighbour (when under), choosing the single move that most reduces
+// total deviation while keeping the donor district connected. The
+// older one-directional version did nothing when the imbalance was a
+// single under-populated district (the max *positive* deviation was
+// then tiny), which is exactly the failure mode of a stray splitline
+// cut. Deterministic (ties → lowest unit index), bounded, no RNG.
 function rebalance(units, adjacency, assignment, districtPop, k, tol = 0.03) {
   const total = districtPop.reduce((s, p) => s + p, 0);
   const target = total / k;
-  const maxMoves = Math.min(units.length * 4, 60000);
-  for (let mv = 0; mv < maxMoves; mv++) {
-    let hi = -1, hiDev = 0;
-    for (let d = 0; d < k; d++) {
-      const dev = (districtPop[d] - target) / target;
-      if (dev > hiDev) { hiDev = dev; hi = d; }
-    }
-    if (hi < 0 || hiDev <= tol) break;
-    // Find a boundary unit of `hi` adjacent to a lower-pop district whose
-    // move improves balance and keeps `hi` connected.
-    let bestU = -1, bestTo = -1, bestGain = 0;
+  if (!(target > 0)) return;
+  const maxMoves = Math.min(units.length * 8, 120000);
+  // Try one strictly-improving, connectivity-safe move for district
+  // `worst` (over=shed, !over=annex). Returns true if a move was applied.
+  const tryMove = (worst, over, requireBest) => {
+    let bestU = -1, bestPart = -1, bestGain = 1e-6;
     for (let i = 0; i < units.length; i++) {
-      if (assignment[i] !== hi) continue;
-      for (const v of adjacency[i]) {
-        const to = assignment[v];
-        if (to === hi || to < 0) continue;
-        if (districtPop[to] >= districtPop[hi] - units[i].pop) continue;
-        const before = Math.abs(districtPop[hi] - target) + Math.abs(districtPop[to] - target);
-        const after = Math.abs(districtPop[hi] - units[i].pop - target) +
-                      Math.abs(districtPop[to] + units[i].pop - target);
-        const gain = before - after;
-        if (gain > bestGain) { bestGain = gain; bestU = i; bestTo = to; }
-      }
-    }
-    if (bestU < 0) break;
-    if (!stillConnected(adjacency, assignment, hi, bestU)) {
-      // Skip this unit permanently this pass by nudging: try next iteration
-      // it'll be re-found; to avoid infinite loop, zero its candidacy by
-      // moving on if no other improving move exists.
-      let moved = false;
-      for (let i = 0; i < units.length && !moved; i++) {
-        if (assignment[i] !== hi) continue;
+      const ai = assignment[i];
+      if (ai < 0) continue;
+      const pop = units[i].pop;
+      if (over) {
+        if (ai !== worst) continue;
         for (const v of adjacency[i]) {
           const to = assignment[v];
-          if (to === hi || to < 0) continue;
-          if (districtPop[to] >= districtPop[hi] - units[i].pop) continue;
-          if (!stillConnected(adjacency, assignment, hi, i)) continue;
-          assignment[i] = to; districtPop[hi] -= units[i].pop; districtPop[to] += units[i].pop;
-          moved = true; break;
+          if (to === worst || to < 0) continue;
+          const before = Math.abs(districtPop[worst] - target) + Math.abs(districtPop[to] - target);
+          const after = Math.abs(districtPop[worst] - pop - target) + Math.abs(districtPop[to] + pop - target);
+          const gain = before - after;
+          if (gain > bestGain && (requireBest || stillConnected(adjacency, assignment, worst, i))) {
+            bestGain = gain; bestU = i; bestPart = to;
+            if (!requireBest) { assignment[i] = to; districtPop[worst] -= pop; districtPop[to] += pop; return true; }
+          }
+        }
+      } else {
+        if (ai === worst) continue;
+        let touches = false;
+        for (const v of adjacency[i]) if (assignment[v] === worst) { touches = true; break; }
+        if (!touches) continue;
+        const from = ai;
+        const before = Math.abs(districtPop[worst] - target) + Math.abs(districtPop[from] - target);
+        const after = Math.abs(districtPop[worst] + pop - target) + Math.abs(districtPop[from] - pop - target);
+        const gain = before - after;
+        if (gain > bestGain && (requireBest || stillConnected(adjacency, assignment, from, i))) {
+          bestGain = gain; bestU = i; bestPart = from;
+          if (!requireBest) { assignment[i] = worst; districtPop[from] -= pop; districtPop[worst] += pop; return true; }
         }
       }
-      if (!moved) break;
-      continue;
     }
-    assignment[bestU] = bestTo;
-    districtPop[hi] -= units[bestU].pop;
-    districtPop[bestTo] += units[bestU].pop;
-  }
-}
-
-// Reassign only SMALL stray components (specks left by straight splitline
-// cuts) to whichever adjacent district they touch most — large legitimate
-// pieces are left alone so splitline keeps its exact equipopulation.
-// Deterministic.
-function enforceContiguity(units, adjacency, assignment, k, passes = 2) {
-  const n = assignment.length;
-  const maxStray = Math.max(2, Math.round(n * 0.0006));
-  for (let pass = 0; pass < passes; pass++) {
-    const comp = new Int32Array(n).fill(-1);
-    let nc = 0; const compD = [], compSz = [];
-    for (let s = 0; s < n; s++) {
-      if (comp[s] >= 0) continue;
-      const d = assignment[s], id = nc++; compD.push(d); let sz = 0;
-      const st = [s]; comp[s] = id;
-      while (st.length) { const u = st.pop(); sz++; for (const v of adjacency[u]) if (comp[v] < 0 && assignment[v] === d) { comp[v] = id; st.push(v); } }
-      compSz.push(sz);
+    if (requireBest && bestU >= 0) {
+      const src = over ? worst : bestPart;
+      if (stillConnected(adjacency, assignment, src, bestU)) {
+        const dst = over ? bestPart : worst;
+        assignment[bestU] = dst;
+        districtPop[src] -= units[bestU].pop;
+        districtPop[dst] += units[bestU].pop;
+        return true;
+      }
     }
-    const biggest = {};
-    for (let cId = 0; cId < nc; cId++) { const d = compD[cId]; if (!biggest[d] || compSz[cId] > biggest[d].sz) biggest[d] = { id: cId, sz: compSz[cId] }; }
-    let changed = false;
-    for (let i = 0; i < n; i++) {
-      const d = assignment[i];
-      if (!biggest[d] || comp[i] === biggest[d].id) continue;
-      if (compSz[comp[i]] > maxStray) continue; // leave large legit pieces
-      const tally = {};
-      for (const v of adjacency[i]) if (assignment[v] !== d) tally[assignment[v]] = (tally[assignment[v]] || 0) + 1;
-      let to = -1, mx = 0;
-      for (const kk in tally) if (tally[kk] > mx) { mx = tally[kk]; to = +kk; }
-      if (to >= 0) { assignment[i] = to; changed = true; }
+    return false;
+  };
+  for (let mv = 0; mv < maxMoves; mv++) {
+    let worst = -1, worstAbs = tol;
+    for (let d = 0; d < k; d++) {
+      const a = Math.abs(districtPop[d] - target) / target;
+      if (a > worstAbs) { worstAbs = a; worst = d; }
     }
-    if (!changed) break;
+    if (worst < 0) break;
+    const over = districtPop[worst] > target;
+    // Prefer the single best move; if that one would split the donor,
+    // fall back to the first strictly-improving connectivity-safe move.
+    if (!tryMove(worst, over, true) && !tryMove(worst, over, false)) break;
   }
 }
 
@@ -2952,11 +2981,34 @@ function runSplitline(units, adjacency, k) {
         bestSplit._j = j;
       }
     }
-    if (!bestSplit) { // degenerate — fall back to even index split
-      const ord = members.slice();
-      const aSide = ord.slice(0, Math.round(members.length * (A / K)));
-      const bSide = ord.slice(aSide.length);
-      recurse(aSide, A, did); recurse(bSide, B, did + A); return;
+    if (!bestSplit) {
+      // Degenerate hull (few or collinear centroids — common deep in the
+      // recursion for thin rural regions). The old fallback split by raw
+      // member COUNT, which strands a badly under-populated district when
+      // tract populations vary — the root cause of splitline's worst
+      // outliers. Split by POPULATION quantile along the members' longest-
+      // spread axis instead. Deterministic (stable axis + index tiebreak),
+      // so every split stays population-balanced even when degenerate.
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const i of members) {
+        const c = units[i].centroid;
+        if (c[0] < minX) minX = c[0]; if (c[0] > maxX) maxX = c[0];
+        if (c[1] < minY) minY = c[1]; if (c[1] > maxY) maxY = c[1];
+      }
+      const useX = (maxX - minX) >= (maxY - minY);
+      const ord = members.slice().sort((p, q) => {
+        const cp = units[p].centroid, cq = units[q].centroid;
+        const a = useX ? cp[0] : cp[1], b = useX ? cq[0] : cq[1];
+        return a - b || (useX ? cp[1] - cq[1] : cp[0] - cq[0]) || p - q;
+      });
+      let acc = 0, cut = 0;
+      for (; cut < ord.length - 1; cut++) {
+        acc += units[ord[cut]].pop;
+        if (acc >= targetA) break;
+      }
+      recurse(ord.slice(0, cut + 1), A, did);
+      recurse(ord.slice(cut + 1), B, did + A);
+      return;
     }
     const aSide = bestSplit.slice(0, bestSplit._j + 1);
     const bSide = bestSplit.slice(bestSplit._j + 1);
@@ -2964,9 +3016,18 @@ function runSplitline(units, adjacency, k) {
     recurse(bSide, B, did + A);
   }
   recurse(units.map((_, i) => i), k, 0);
-  enforceContiguity(units, adjacency, assignment, k);
   const districtPop = new Array(k).fill(0);
   for (let i = 0; i < n; i++) districtPop[assignment[i]] += units[i].pop;
+  // The recursive shortest-line quantile cut is already population-
+  // balanced (~3 % worst-district on real tract sets). We deliberately do
+  // NOT run a stray-component cleanup here: the model-substrate tract
+  // adjacency graph is imperfect, so geographically-contiguous straight
+  // cuts read as many tiny graph-components, and a population-blind
+  // speck-reassignment pass shredded that balance (3 %→49 % on Texas).
+  // Instead, the deterministic, contiguity-preserving bidirectional
+  // rebalance tightens the small residual toward ±2 % — no RNG, so
+  // shortest-splitline stays a pure function of geography and seat count.
+  rebalance(units, adjacency, assignment, districtPop, k, 0.02);
   return { assignment, districtPop };
 }
 
