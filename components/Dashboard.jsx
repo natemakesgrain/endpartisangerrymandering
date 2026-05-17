@@ -3595,6 +3595,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
     // intra-district county/tract lines, matching the precinct national
     // look the user preferred.
     const elements = [];
+    const clipDefs = [];
     const rendered = new Set();
     if (districting) {
       for (const [code, p] of Object.entries(districting.partitions)) {
@@ -3605,14 +3606,33 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
         const results = computeDistrictResults(units, p.partition, year);
         const colorByD = results.map((r) => shareToColor(r.dShare));
         const asn = p.partition.assignment;
+        const stEls = [];
         for (let i = 0; i < units.length; i++) {
           const u = units[i];
           const c = colorByD[asn[i]] || '#e6ddd0';
-          elements.push(<path key={u.id} d={u.pathD} fill={c} stroke={c} strokeWidth="0.06" />);
+          stEls.push(<path key={u.id} d={u.pathD} fill={c} stroke={c} strokeWidth="0.06" />);
+        }
+        // Precinct dissolved-district polygons aren't land-clipped (DRA
+        // VTD geometry covers ocean/lakes); clip them to this state's
+        // model county land — same universal fix as the state-detail
+        // view, so the national precinct map's water is clean negative
+        // space too. Model/tract states are already land geometry.
+        const landD = p.substrate === 'precinct'
+          ? (data.unitsByState[code] || []).map((u) => u.pathD).join('') : '';
+        if (landD) {
+          clipDefs.push(
+            <clipPath key={code} id={`natclip-${code}`} clipPathUnits="userSpaceOnUse">
+              <path d={landD} />
+            </clipPath>
+          );
+          elements.push(<g key={`g-${code}`} clipPath={`url(#natclip-${code})`}>{stEls}</g>);
+        } else {
+          for (const el of stEls) elements.push(el);
         }
         rendered.add(code);
       }
     }
+    if (clipDefs.length) elements.unshift(<defs key="natclipdefs">{clipDefs}</defs>);
     // States with no partition yet (loading) → unit's own colour, faint.
     for (const u of data.units) {
       if (rendered.has(u.stateCode)) continue;
@@ -3635,7 +3655,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
       if (!units || !units.length) continue;
       // One robust mesh border per state (undirected → no dropped sides).
       const pathD = meshBorderPath(units, partition.assignment);
-      if (pathD) out.push({ key: code, pathD, slabPathD: '' });
+      if (pathD) out.push({ key: code, pathD, slabPathD: '', substrate: p.substrate });
     }
     return out;
   }, [districting]);
@@ -3721,12 +3741,20 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
         {/* District boundary: a white casing UNDER a bold dark line so it
             reads clearly over the county/tract colour mosaic (a single
             thin black line was getting lost — user feedback). */}
-        {districtPaths.map((dp) => dp.pathD ? (
-          <path key={`${dp.key}-c`} d={dp.pathD} fill="none" stroke="#fdfaf2" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" opacity="0.85" />
-        ) : null)}
-        {districtPaths.map((dp) => dp.pathD ? (
-          <path key={dp.key} d={dp.pathD} fill="none" stroke="#1a1a14" strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
-        ) : null)}
+        {districtPaths.map((dp) => {
+          if (!dp.pathD) return null;
+          const el = <path d={dp.pathD} fill="none" stroke="#fdfaf2" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" opacity="0.85" />;
+          return dp.substrate === 'precinct'
+            ? <g key={`${dp.key}-c`} clipPath={`url(#natclip-${dp.key})`}>{el}</g>
+            : <g key={`${dp.key}-c`}>{el}</g>;
+        })}
+        {districtPaths.map((dp) => {
+          if (!dp.pathD) return null;
+          const el = <path d={dp.pathD} fill="none" stroke="#1a1a14" strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />;
+          return dp.substrate === 'precinct'
+            ? <g key={dp.key} clipPath={`url(#natclip-${dp.key})`}>{el}</g>
+            : <g key={dp.key}>{el}</g>;
+        })}
         {/* Layer 3: state borders — dark stroke beneath, bold white stroke on top */}
         {stateOutlinesDark}
         {stateOutlinesWhite}
