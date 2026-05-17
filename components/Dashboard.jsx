@@ -3019,14 +3019,16 @@ function runSplitline(units, adjacency, k) {
   const districtPop = new Array(k).fill(0);
   for (let i = 0; i < n; i++) districtPop[assignment[i]] += units[i].pop;
   // The recursive shortest-line quantile cut is already population-
-  // balanced (~3 % worst-district on real tract sets). We deliberately do
-  // NOT run a stray-component cleanup here: the model-substrate tract
-  // adjacency graph is imperfect, so geographically-contiguous straight
-  // cuts read as many tiny graph-components, and a population-blind
-  // speck-reassignment pass shredded that balance (3 %→49 % on Texas).
-  // Instead, the deterministic, contiguity-preserving bidirectional
-  // rebalance tightens the small residual toward ±2 % — no RNG, so
-  // shortest-splitline stays a pure function of geography and seat count.
+  // balanced (~3 % worst-district on real tract sets). A deterministic,
+  // contiguity-preserving BIDIRECTIONAL rebalance tightens it toward
+  // ±2 % — no RNG, so splitline stays a pure function of geography.
+  // NB: do NOT add a graph-component "speck cleanup" here. The bundled
+  // tract adjacency graph is so imperfect that a geographically-
+  // contiguous splitline district shatters into thousands of tiny
+  // graph-components; reassigning them (at ANY cap) moves a huge share
+  // of the state and re-breaks balance to ~43 % even with a rebalance
+  // chaser (measured). Stray visual specks must be handled cosmetically
+  // on the GEOMETRIC segment graph, never on this adjacency graph.
   rebalance(units, adjacency, assignment, districtPop, k, 0.02);
   return { assignment, districtPop };
 }
@@ -4419,8 +4421,9 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 <g key={`leader-${ext.d}`} pointerEvents="none">
                   <line x1={px} y1={py} x2={tx} y2={ty}
                         stroke="#1a1a14"
-                        strokeWidth={Math.max(0.18, labelLayout.fontSize * 0.07)} />
-                  <circle cx={tx} cy={ty} r={Math.max(0.3, labelLayout.fontSize * 0.12)}
+                        strokeWidth={Math.max(0.18, labelLayout.fontSize * 0.07) / zoom}
+                        strokeLinecap="round" />
+                  <circle cx={tx} cy={ty} r={Math.max(0.3, labelLayout.fontSize * 0.12) / zoom}
                           fill="#1a1a14" />
                 </g>
               );
@@ -4428,9 +4431,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             {/* Layer 4b: the pill plates themselves — one renderer for both
                 inline and external since geometry is identical. */}
             {(() => {
-              const fontSize = labelLayout.fontSize;
-              const plateH = labelLayout.plateH;
-              const plateBorder = Math.max(0.18, fontSize * 0.07);
+              // Plates/leaders are screen-furniture, not geography: shrink
+              // them with zoom (like the border strokes) so they don't
+              // dominate when the user zooms into detail.
+              const fontSize = labelLayout.fontSize / zoom;
+              const plateH = labelLayout.plateH / zoom;
+              const plateBorder = Math.max(0.18, labelLayout.fontSize * 0.07) / zoom;
               const opticalDy = -fontSize * 0.07;
               const renderPlate = (d, cx, cy, keyPrefix) => {
                 const label = String(d + 1);

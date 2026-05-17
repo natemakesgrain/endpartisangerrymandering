@@ -279,14 +279,16 @@ export function runSplitline(units, adjacency, k) {
   const districtPop = new Array(k).fill(0);
   for (let i = 0; i < n; i++) districtPop[assignment[i]] += units[i].pop;
   // The recursive shortest-line quantile cut is already population-
-  // balanced (~3 % worst-district on real tract sets). We deliberately do
-  // NOT run a stray-component cleanup here: the model-substrate tract
-  // adjacency graph is imperfect, so geographically-contiguous straight
-  // cuts read as many tiny graph-components, and a population-blind
-  // speck-reassignment pass shredded that balance (3 %→49 % on Texas).
-  // Instead, the deterministic, contiguity-preserving bidirectional
-  // rebalance tightens the small residual toward ±2 % — no RNG, so
-  // shortest-splitline stays a pure function of geography and seat count.
+  // balanced (~3 % worst-district on real tract sets). A deterministic,
+  // contiguity-preserving BIDIRECTIONAL rebalance tightens it toward
+  // ±2 % — no RNG, so splitline stays a pure function of geography.
+  // NB: do NOT add a graph-component "speck cleanup" here. The bundled
+  // tract adjacency graph is so imperfect that a geographically-
+  // contiguous splitline district shatters into thousands of tiny
+  // graph-components; reassigning them (at ANY cap) moves a huge share
+  // of the state and re-breaks balance to ~43 % even with a rebalance
+  // chaser (measured). Stray visual specks must be handled cosmetically
+  // on the GEOMETRIC segment graph, never on this adjacency graph.
   rebalance(units, adjacency, assignment, districtPop, k, 0.02);
   return { assignment, districtPop };
 }
