@@ -1202,6 +1202,15 @@ const TRACTS_BASE_URL =
 const PRECINCTS_BASE_URL =
   (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_PRECINCTS_BASE_URL) ||
   '/data/precincts/';
+// The ACTUAL enacted congressional districts per cycle (U.S. Census
+// cartographic-boundary CD shapefiles → scripts/build-enacted.mjs →
+// /data/enacted/<fips>.json: { byYear:{ "2000":{seats,dists:[{polys,pop,
+// v}]} } }). Same Albers space as the precinct substrate, colored by the
+// same per-cycle precinct vote — so "Enacted" is an apples-to-apples
+// comparison against the Splitline/ReCom algorithmic maps.
+const ENACTED_BASE_URL =
+  (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_ENACTED_BASE_URL) ||
+  '/data/enacted/';
 const PRECINCT_YEARS = [2008, 2012, 2016, 2020];
 // 2-letter codes whose precinct file has been generated. All 50 states are
 // built (scripts/build-precincts.mjs); single-seat states still get real
@@ -3395,7 +3404,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         </div>
       </div>
       <div>
-        <div style={S.tickerKicker}>{districtingDone ? `${year} ALGORITHMIC HOUSE` : 'ALGORITHMIC DISTRICTING'}</div>
+        <div style={S.tickerKicker}>{districting?.enacted
+          ? (districtingDone ? `${year} ENACTED HOUSE` : 'ENACTED DISTRICTS')
+          : (districtingDone ? `${year} ALGORITHMIC HOUSE` : 'ALGORITHMIC DISTRICTING')}</div>
         {seats ? (
           <>
             <div style={S.tickerScore} className="r-tickerscore">
@@ -3450,18 +3461,21 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         </div>
       </div>
       <div style={S.headlineNote}>
-        <div style={S.tickerKicker}>ALGORITHM</div>
+        <div style={S.tickerKicker}>DISTRICT MAP</div>
         <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           {[
-            ['recom', 'ReCom', 'Markov chain · keeps metros'],
+            ['enacted', 'Enacted', 'real lines · U.S. Census'],
             ['splitline', 'Splitline', 'shortest-line · exact pop'],
+            ['recom', 'ReCom', 'Markov chain · keeps metros'],
           ].map(([key, label, sub]) => {
             const on = model === key;
             return (
               <button
                 key={key}
                 onClick={() => setModel && setModel(key)}
-                title={key === 'recom'
+                title={key === 'enacted'
+                  ? 'The actual congressional districts this cycle, from U.S. Census cartographic-boundary CD shapefiles — the real legislature-/court-drawn map, colored by the same precinct vote so it is directly comparable to the algorithmic maps.'
+                  : key === 'recom'
                   ? 'Recombination Markov chain (DeFord–Duchin–Solomon) with a metro-cohesion bonus that resists splitting a metro area across districts. Random but reproducible from the published seed.'
                   : "Deterministic shortest-splitline (rangevoting.org): recursively cut with the shortest line giving the right population split. Exactly equipopulous, ignores communities."}
                 style={{
@@ -3483,7 +3497,8 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
           })}
         </div>
         <div style={{ ...S.tickerSub, marginTop: 4, fontSize: 10, fontStyle: 'italic' }}>
-          {model === 'recom' ? 'reseed for a different valid map · click a state'
+          {model === 'enacted' ? 'the real map states actually used · click a state'
+            : model === 'recom' ? 'reseed for a different valid map · click a state'
             : 'deterministic · perfectly equipopulous · click a state'}
         </div>
       </div>
@@ -3988,12 +4003,27 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
     <section style={S.mapSection} className="r-mapsection r-pad">
       <div style={S.mapHeader} className="r-mapheader">
         <div>
-          <div style={S.kicker}>{precinctMode ? 'PRECINCT VIEW · REAL RETURNS' : districtingDone ? 'THE ALGORITHMIC HOUSE' : 'THE COUNTY GROUND TRUTH'}</div>
+          <div style={S.kicker}>{model === 'enacted' ? 'ENACTED MAP · REAL DISTRICTS' : precinctMode ? 'PRECINCT VIEW · REAL RETURNS' : districtingDone ? 'THE ALGORITHMIC HOUSE' : 'THE COUNTY GROUND TRUTH'}</div>
           <h2 style={S.sectionTitle}>
-            {districtingDone ? `${year} congressional districts, drawn by algorithm.` : `${year} presidential vote, by county.`}
+            {model === 'enacted'
+              ? `${year}'s enacted congressional districts.`
+              : districtingDone ? `${year} congressional districts, drawn by algorithm.` : `${year} presidential vote, by county.`}
           </h2>
           <p style={S.sectionLede} className="r-sectionlede">
-            {precinctMode ? (
+            {model === 'enacted' ? (
+              <>
+                <strong>The real enacted map — all 50 states, {year}.</strong> These are the actual
+                congressional districts in force that cycle, from <strong>U.S. Census cartographic-boundary
+                CD shapefiles</strong> (mid-decade court redraws captured; methodology §3.6). They are colored
+                by the <em>same</em> precinct vote as the algorithmic maps —{' '}
+                {PRECINCT_YEARS.includes(year)
+                  ? <><strong>real counted precinct returns</strong> ({year} is one of the four observed cycles, 2008/’12/’16/’20)</>
+                  : <><strong>precinct-MODELED</strong> from county truth (§3.5)</>}
+                {' '}— so flipping between <strong>Enacted</strong>, <strong>Splitline</strong> and{' '}
+                <strong>ReCom</strong> is an apples-to-apples comparison of the real gerrymander against the
+                neutral baselines. <strong>Click any state</strong> for per-district detail.
+              </>
+            ) : precinctMode ? (
               <>
                 <strong>Precinct view — all 50 states, all 13 cycles.</strong> Districts are drawn on
                 the real 2020-VTD precinct graph.{' '}
@@ -4089,10 +4119,17 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // Precinct view: real precinct (2020 VTD) returns for this state, if a
   // precinct file was built for it. Takes precedence over everything when
   // active + ready. (Uncovered states show a notice and fall back below.)
-  const precinctCovered = substrate === 'precinct' && PRECINCT_STATES.has(stateCode);
+  const precinctCovered = substrate === 'precinct' && model !== 'enacted' && PRECINCT_STATES.has(stateCode);
   const { precinctData, partition: precPartition, stage: precStage, error: precError } =
     useStatePrecinctPartition(stateCode, data, seats, baseSeed, precinctCovered, model);
   const precinctReady = precinctCovered && precStage === 'ready' && precPartition && precinctData;
+
+  // Enacted view: the real Census CD record for this cycle is ALREADY in
+  // the national partitions object (effDistricting.partitions[code]), one
+  // synthetic unit per district — reuse it directly (no extra fetch),
+  // exactly as the shared-tract path reuses the national tract record.
+  const enactedReady = model === 'enacted' && stateRecord &&
+    stateRecord.seats === seats && stateRecord.renderUnits;
 
   // Reuse the national tract partition only when it was computed with
   // the SAME model (national runs the selected model) AND the SAME
@@ -4107,7 +4144,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // while loading). Skipped entirely while precinct is active.
   const { tractData, partition: tractPartition, stage: tractStage, error: tractError } =
     useStateTractPartition(
-      (precinctCovered || sharedTractReady) ? null : stateCode,
+      (precinctCovered || sharedTractReady || enactedReady) ? null : stateCode,
       data, seats, baseSeed, model
     );
 
@@ -4117,7 +4154,10 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   //   2. Locally-computed tract partition
   //   3. County-fragment fallback
   let stateUnits, partition;
-  if (precinctReady) {
+  if (enactedReady) {
+    stateUnits = stateRecord.renderUnits;
+    partition = stateRecord.partition;
+  } else if (precinctReady) {
     stateUnits = precinctData.units;
     partition = precPartition;
   } else if (sharedTractReady) {
@@ -4130,7 +4170,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     stateUnits = countyUnits;
     partition = countyPartition;
   }
-  const usePrecinct = !!precinctReady;
+  const useEnacted = !!enactedReady;
+  // Enacted renders through the precinct path (one polygon per district,
+  // land-clipped, thin strokes) — same geometry treatment, different
+  // labels (it is NOT precinct-granular; one synthetic unit = one
+  // district), so the panel/insight copy keys off `useEnacted`.
+  const usePrecinct = !!precinctReady || useEnacted;
   const useTracts = !usePrecinct && (sharedTractReady ||
     (tractStage === 'ready' && tractPartition && tractData));
   const k = partition ? partition.districtPop.length : 0;
@@ -4173,6 +4218,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // county composition (with split flags), unit count, population.
   const insight = useMemo(() => {
     if (selDist == null || !partition) return null;
+    // Enacted records are one synthetic unit per district (no per-precinct
+    // county / demographic / multi-cycle breakdown in-app) — the deep-dive
+    // card would be empty/misleading, so clicking a district just
+    // highlights it; the per-district D-share panel + map carry the
+    // Enacted-vs-algorithmic comparison.
+    if (useEnacted) return null;
     const yrs = YEAR_CONFIG.allYears; // precinct now covers all 13 cycles
     const members = [];
     const byCounty = new Map();
@@ -4226,7 +4277,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       cycles, counties, dem,
       countySplitCount: counties.filter((c) => c.split).length,
     };
-  }, [selDist, partition, stateUnits, usePrecinct, k, countySplits]);
+  }, [selDist, partition, stateUnits, usePrecinct, useEnacted, k, countySplits]);
 
   // DISPLAY-ONLY assignment: the true partition with genuine marooned
   // specks absorbed into the district that geometrically surrounds them.
@@ -4615,9 +4666,11 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           <div style={S.kicker}>STATE DETAIL · {stateCode}</div>
           <h2 style={S.sectionTitle}>{sg.name}</h2>
           <p style={{ ...S.sectionLede, marginBottom: 0 }} className="r-sectionlede">
-            {k || seats} congressional districts · {stateUnits.length.toLocaleString()}{' '}
-            {usePrecinct ? 'voting precincts · real ' + year + ' returns'
-              : useTracts ? 'census tracts' : 'county units'} · max population deviation{' '}
+            {k || seats} congressional districts · {useEnacted
+              ? <>the <strong>real enacted map</strong> · U.S. Census CD · colored by {PRECINCT_YEARS.includes(year) ? 'real' : 'modeled'} {year} precinct vote</>
+              : <>{stateUnits.length.toLocaleString()}{' '}
+                {usePrecinct ? 'voting precincts · real ' + year + ' returns'
+                  : useTracts ? 'census tracts' : 'county units'}</>} · max population deviation{' '}
             <span style={{ color: maxDev <= 0.01 ? '#1a1a14' : maxDev <= 0.05 ? '#1a1a14' : '#c44536', fontWeight: 600 }}>
               {(maxDev * 100).toFixed(1)}%
             </span>
@@ -5172,6 +5225,111 @@ function usePrecinctNational(data, baseSeed, active, model = 'recom', year = YEA
   }, [data, baseSeed, active, model, census]);
 
   return { precinctPartitions: partitions, precinctProgress: progress };
+}
+
+/* ---------- ENACTED (REAL) DISTRICTS ----------------------------------- */
+// The actual congressional districts a state used each cycle (U.S. Census
+// CD shapefiles, scripts/build-enacted.mjs → /data/enacted/<fips>.json),
+// colored by THAT cycle's precinct vote — the apples-to-apples real-map
+// counterpart to the Splitline/ReCom algorithmic maps. Same synthetic
+// "one render-unit per district" shape buildPrecinctDistrictRecord uses
+// (substrate:'precinct'), so the national renderer + seat/vote tallies +
+// state-detail reuse all work UNCHANGED.
+const CACHED_ENACTED_NATIONAL = new Map(); // `enacted_${year}` → { CODE: rec }
+const CACHED_ENACTED_FILES = new Map();    // fips → full byYear json
+
+function buildEnactedDistrictRecord(ej, code, stateGeom, year) {
+  const by = ej && ej.byYear && (ej.byYear[year] || ej.byYear[String(year)]);
+  if (!by || !by.dists || !by.dists.length) return null;
+  const units = by.dists.map((d, i) => {
+    const polys = d.polys && d.polys.length ? d.polys : [];
+    const e = d.v && (d.v[year] || d.v[String(year)]);
+    const votes = {};
+    for (const yr of YEAR_CONFIG.allYears) votes[yr] = { d: 0, r: 0, t: 0 };
+    if (e) votes[year] = { d: e[0], r: e[1], t: (e[0] || 0) + (e[1] || 0) };
+    return {
+      id: `${code}-e${i}`, fips: ej.fips, stateCode: code, pop: d.pop || 0,
+      polygons: polys, votes, parentDShare: {},
+      centroid: polys.length ? multiPolygonCentroid(polys) : [0, 0],
+      bbox: polys.length ? bboxOfPolygons(polys) : [0, 0, 0, 0],
+      pathD: polys.length ? pathFromPolygons(polys) : '',
+    };
+  });
+  const k = units.length;
+  const assignment = new Int16Array(k);
+  const districtPop = new Array(k);
+  let mean = 0;
+  for (let i = 0; i < k; i++) { assignment[i] = i; districtPop[i] = units[i].pop; mean += units[i].pop; }
+  mean /= (k || 1);
+  let maxDev = 0;
+  if (mean > 0) for (const dp of districtPop) {
+    const dv = Math.abs(dp - mean) / mean; if (dv > maxDev) maxDev = dv;
+  }
+  return {
+    partition: { assignment, districtPop },
+    units, renderUnits: units,
+    name: (stateGeom[code] || {}).name || code,
+    seats: by.seats || k,
+    maxDev,
+    substrate: 'precinct',
+    enacted: true,
+    source: by.source,
+  };
+}
+
+function useEnactedNational(data, active, year = YEAR_CONFIG.defaultYear) {
+  const ckOf = (y) => `enacted_${y}`;
+  const [partitions, setPartitions] = useState(() =>
+    active ? CACHED_ENACTED_NATIONAL.get(ckOf(year)) || {} : {});
+  const [progress, setProgress] = useState(null);
+
+  useEffect(() => {
+    if (!active || !data) { setPartitions({}); setProgress(null); return; }
+    const ck = ckOf(year);
+    if (CACHED_ENACTED_NATIONAL.has(ck)) {
+      setPartitions(CACHED_ENACTED_NATIONAL.get(ck)); setProgress(null); return;
+    }
+    let cancelled = false;
+    const codes = [...PRECINCT_STATES];
+    setProgress({ done: 0, total: codes.length, code: null });
+    (async () => {
+      // Whole-state byYear files (all 13 cycles) — fetch once, cache; a
+      // year change just rebuilds records (cheap), no refetch.
+      const fetched = await Promise.all(codes.map(async (code) => {
+        if (CACHED_ENACTED_FILES.has(code)) return [code, CACHED_ENACTED_FILES.get(code)];
+        try {
+          const r = await fetch(ENACTED_BASE_URL + FIPS_BY_STATE_CODE[code] + '.json');
+          if (!r.ok) return [code, undefined];
+          const j = await r.json();
+          CACHED_ENACTED_FILES.set(code, j);
+          return [code, j];
+        } catch { return [code, undefined]; }
+      }));
+      if (cancelled) return;
+      const acc = {};
+      let done = 0;
+      for (const [code, ej] of fetched) {
+        if (cancelled) return;
+        if (ej) {
+          const rec = buildEnactedDistrictRecord(ej, code, data.stateGeom, year);
+          if (rec) acc[code] = rec;
+        }
+        done++;
+        if (!cancelled && (done % 6 === 0 || done === codes.length)) {
+          setProgress(done === codes.length ? null : { done, total: codes.length, code: code + '▪' });
+          setPartitions({ ...acc });
+        }
+        if (done % 6 === 0) await new Promise((r) => setTimeout(r, 0));
+      }
+      if (cancelled) return;
+      CACHED_ENACTED_NATIONAL.set(ck, acc);
+      setPartitions(acc);
+      setProgress(null);
+    })();
+    return () => { cancelled = true; };
+  }, [data, active, year]);
+
+  return { enactedPartitions: partitions, enactedProgress: progress };
 }
 
 /* ---------- DISTRICTING HOOK -------------------------------------------- */
@@ -5817,8 +5975,14 @@ export default function USRedistrictingDashboard() {
     data, seed, 0.05, !prerenderMode && substrate !== 'precinct', model, year
   );
   // National precinct substrate — all 50 states, pre-baked → instant.
+  // (Idle when the user is viewing the real ENACTED map instead.)
   const { precinctPartitions, precinctProgress } =
-    usePrecinctNational(data, seed, substrate === 'precinct', model, year);
+    usePrecinctNational(data, seed, substrate === 'precinct' && model !== 'enacted', model, year);
+  // The ACTUAL enacted districts for the selected cycle (real Census CD
+  // geometry, colored by the same precinct vote) — active only when the
+  // user picks the "Enacted" map.
+  const { enactedPartitions, enactedProgress } =
+    useEnactedNational(data, substrate === 'precinct' && model === 'enacted', year);
 
   // Children get a synthetic districting object depending on mode:
   //  • prerender → the committed image/summary path
@@ -5827,13 +5991,16 @@ export default function USRedistrictingDashboard() {
   let effDistricting;
   if (prerenderMode) {
     effDistricting = { prerendered: true, seed, summary, partitions: {} };
+  } else if (substrate === 'precinct' && model === 'enacted') {
+    effDistricting = { seed, tolerance: 0.05, partitions: enactedPartitions, enacted: true };
   } else if (substrate === 'precinct') {
     effDistricting = { seed, tolerance: 0.05, partitions: precinctPartitions };
   } else {
     effDistricting = districting;
   }
-  // Surface precinct loading in the headline progress while it streams.
-  const effProgress = substrate === 'precinct' ? precinctProgress : districtingProgress;
+  // Surface precinct/enacted loading in the headline progress while it streams.
+  const effProgress = substrate !== 'precinct' ? districtingProgress
+    : model === 'enacted' ? enactedProgress : precinctProgress;
 
   const handleSetYear = (y) => {
     if (y !== YEAR_CONFIG.defaultYear) setEngaged(true);

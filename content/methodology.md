@@ -173,7 +173,39 @@ The damping factor **λ** keeps the full precinct trend for the *interpolated* m
 
 **Honest labelling.** The four observed cycles are shown as real returns. The nine modeled cycles are labelled **MODELED** in the headline and the map lede; the six midterms are doubly modeled (their county figure is itself the §2 House-swing estimate) and say so. `scripts/model-precinct-votes.mjs` is the reference implementation and writes `modeledYears` into each state's file so the UI can never mislabel a cycle.
 
+**The observed set is computed per state, not assumed.** DRA's 2020-VTD compilation does not actually carry all four nominal cycles in every state: precinct boundaries changed between an old election and the 2020 VTDs, so a state can be missing one. In practice exactly seven — the single-seat states **AK, DE, MT, ND, SD, VT, WY** — have no precinct-level **2012** presidential returns. Rather than show them blank at a cycle the rest of the country has, the model treats "observed" as *the nominal cycles a state actually carries* and models the missing one like any other (2012 sits inside the 2008–2020 window, so it is an interpolation, λ = 1, undamped, rescaled to the exact county totals). Those states therefore model ten cycles, not nine, and 2012 is labelled MODELED for them; their `modeledYears` records it. For the other forty-three states the per-state observed set is exactly the four nominal cycles, so ȳ = 2014 and the output is bit-for-bit unchanged.
+
 **Limitations.** β_p is a single linear trend fit on four points spanning 2008–2020; it cannot capture non-linear realignments or one-off local shocks, and far-extrapolated cycles (2000, the early midterms) lean heavily on α_p with β_p damped toward zero. Precincts that did not report in any observed cycle fall back to their county's uniform share. The model assumes a precinct's relationship to its county is the stable quantity — the standard assumption in the redistricting-analysis literature (uniform-partisan-swing with unit fixed effects) and the same family as §3.4 and §2 — but it is an assumption, and the modeled cycles are presented as estimates, not returns.
+
+### 3.6 The enacted maps (the real districts, for comparison)
+
+A neutral baseline is only meaningful next to the thing it is a baseline *for*. The **Enacted** option in the map picker draws the **actual congressional districts** each cycle, so the algorithmic maps (Splitline, ReCom) can be read against the real legislature- and court-drawn lines.
+
+**Source.** U.S. Census Bureau cartographic-boundary Congressional District shapefiles — the official district geometry, one file per Congress. Census's naming changed three times across 2000–2024, so the cycle→file mapping is explicit and every URL was probed live (a real shapefile, not a "soft-404" HTML stub, which the older archive serves for missing files):
+
+| Cycle | Congress | Census map | Source file |
+|---|---|---|---|
+| 2000 | 107th | 1990 | `PREVGENZ … cd99_107` |
+| 2002 | 108th | 2000 | `cd99_108` |
+| 2004 | 109th | 2000 | `cd99_109` (TX 2003 mid-decade redraw baked in) |
+| 2006 | 110th | 2000 | `cd99_110` |
+| 2008 | 111th | 2000 | `cd99_110` ↩ reuse |
+| 2010 | 112th | 2000 | `cd99_110` ↩ reuse |
+| 2012 | 113th | 2010 | `GENZ2013 cb_2013_us_cd113_500k` |
+| 2014 | 114th | 2010 | `GENZ2014 cb_2014_us_cd114_500k` |
+| 2016 | 115th | 2010 | `GENZ2016 cb_2016_us_cd115_500k` (FL/NC/VA 2016 court redraws) |
+| 2018 | 116th | 2010 | `GENZ2018 cb_2018_us_cd116_500k` (PA 2018 court redraw) |
+| 2020 | 117th | 2010 | `GENZ2018 cb_2018_us_cd116_500k` ↩ reuse |
+| 2022 | 118th | 2020 | `GENZ2022 cb_2022_us_cd118_500k` |
+| 2024 | 119th | 2020 | `GENZ2024 cb_2024_us_cd119_500k` |
+
+**The two reuses (↩) are the legally-correct lines, not a shortcut.** No nationwide redistricting occurred between the source cycle and the target cycle within that census decade: the 2008 and 2010 elections ran on the same 2000-census map the 2006 election did, and the 2020 election ran on the same 2010-census map as 2018 (Census never published a distinct `cd117` cartographic file). Mid-decade *court* redraws that *did* happen — TX 2003, FL/NC/VA 2016, PA 2018 — fall on file boundaries and so are captured. Seat counts come out exactly right every decade (e.g. TX 30→32→36→38 across 2000/02/14/22; NC 12→13→14; MT 1→2 in 2022), which is the check that the mapping is correct.
+
+**Projection and coloring — an apples-to-apples comparison.** The shapefiles are projected through the *same* `geoAlbersUsa().scale(1300).translate([487.5, 305])` as the precinct substrate, so an enacted district overlays the precincts exactly (verified: state bounding boxes agree to ≈1 screen unit). Each enacted district is then colored by **the same precinct vote as the algorithmic maps** — real counted returns for 2008/’12/’16/’20, §3.5-modeled otherwise: every precinct is assigned to the enacted district that geographically contains its centroid (nearest-district fallback so no precinct is dropped), and that cycle's precinct D/R is summed in. Because nothing is dropped, `Σ` enacted-district D = `Σ` algorithmic-district D = the state's vote for that cycle, *exactly*. The only thing that differs between Enacted, Splitline and ReCom is **where the lines are** — which is the entire point of the comparison.
+
+**Population.** Each enacted district also carries the 2020-census population of its assigned precincts, shown in the state-detail panel. For the 2020-census maps (2022/2024) this is ≈ equipopulous, as the law requires. For older maps measured against 2020 population the deviation is large — but that is two decades of population *drift*, not evidence the old map was malapportioned (it was equipopulous at *its* census); the panel labels it as the cycle's real districts by current population, and the misleading national "share of states inside ±5 %" statistic is not shown for the enacted view.
+
+**Limitations.** Cartographic-boundary files are generalized (shoreline-clipped, ≈ 1:500 k), so an enacted outline is a faithful but not surveyor-grade boundary — adequate for visual and partisan comparison, not for litigation. The enacted record is one synthetic polygon per district (no in-app precinct→district table), so the per-district click-through *insight* card (county composition, demographics, multi-cycle profile) is disabled for Enacted; the per-district D-share panel, the map, and the headline seat tally — i.e. the comparison itself — are fully populated. `scripts/build-enacted.mjs` is the reference implementation.
 
 ---
 
