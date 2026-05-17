@@ -396,6 +396,11 @@ for (const fips of targets) {
       }
       const o = { polys, pop: dpop[d], v: { [year]: v }, w };
       if (est) o.est = true;
+      // Real per-district result detail for the click-through card:
+      // [Democratic candidate, Republican candidate, actual winner].
+      if (hr && (hr.dCand || hr.rCand || hr.winCand)) {
+        o.c = [hr.dCand || null, hr.rCand || null, hr.winCand || null];
+      }
       return o;
     });
     out.byYear[year] = { seats, source: src.key, dists, est: nEst || undefined };

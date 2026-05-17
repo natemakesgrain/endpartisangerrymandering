@@ -11,23 +11,60 @@
    policy brief that knows it's on a screen.
    ======================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
+/* Ivy Journal — display face (titles, decks, section heads). Self-hosted. */
+@font-face {
+  font-family: 'Ivy Journal';
+  src: url('/fonts/IvyJournal-Light.woff2') format('woff2');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Ivy Journal';
+  src: url('/fonts/IvyJournal-LightItalic.woff2') format('woff2');
+  font-weight: 300; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Ivy Journal';
+  src: url('/fonts/IvyJournal-Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Ivy Journal';
+  src: url('/fonts/IvyJournal-Italic.woff2') format('woff2');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Ivy Journal';
+  src: url('/fonts/IvyJournal-SemiBold.woff2') format('woff2');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Ivy Journal';
+  src: url('/fonts/IvyJournal-Bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+/* Palette sampled from King's Sandwich Shop, Durham NC — warm whitewashed
+   cinderblock, deep cobalt sky, the red awning/base stripe, brick. A plain
+   Americana civic palette: paper white, ink, one blue, one red, one brick. */
 :root {
-  --paper:     #f5efe6;
-  --paper-2:   #ede5d4;
-  --ink:       #1a1a14;
-  --ink-soft:  #4a4a3e;
-  --ink-faint: #8a8a7c;
-  --rule:      rgba(26, 26, 20, 0.18);
-  --rule-faint:rgba(26, 26, 20, 0.08);
+  /* Exact tones sampled from the photograph's flat surfaces. */
+  --paper:     #f0ebdd;   /* sunlit whitewashed cinderblock */
+  --paper-2:   #ddd6c4;   /* the recessed / shadowed wall */
+  --ink:       #1a1712;   /* the black sign lettering */
+  --ink-soft:  #4a4639;   /* shade of ink */
+  --ink-faint: #8b8676;   /* faint shade of ink */
+  --rule:      rgba(26, 23, 18, 0.16);
+  --rule-faint:rgba(26, 23, 18, 0.07);
 
-  --r-strong:  #9b292b;
-  --r-soft:    #c4625f;
-  --d-strong:  #1c498a;
-  --d-soft:    #6886b3;
-  --accent:    #b88a2c;   /* warm gold for pull-quotes & marginalia */
+  --r-strong:  #c23c2b;   /* the red awning + base stripe */
+  --r-soft:    #d5837a;
+  --d-strong:  #1e5577;   /* the deep cobalt sky */
+  --d-soft:    #6f96b1;
+  --accent:    #90493a;   /* the planter brick — marginalia, sparingly */
 
+  --display:  'Ivy Journal', 'Source Serif 4', Georgia, 'Times New Roman', serif;
   --serif:    'Source Serif 4', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
   --sans:     'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --mono:     'JetBrains Mono', 'Menlo', 'Consolas', monospace;
@@ -69,15 +106,7 @@ a:hover { text-decoration-color: var(--ink); }
 
 /* Subtle paper texture: a fine speckle layer that reads as toothy paper at
    any zoom level. SVG-data-url avoids any external request. */
-.site::before {
-  content: '';
-  position: fixed; inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.35;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.10 0 0 0 0 0.10 0 0 0 0 0.08 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  mix-blend-mode: multiply;
-}
+/* (Paper-grain texture removed — cleaner, flatter, more minimal.) */
 .site > * { position: relative; z-index: 1; }
 
 /* ---- Navigation -------------------------------------------------------- */
@@ -491,3 +520,20 @@ a:hover { text-decoration-color: var(--ink); }
   margin: 0 auto;
   padding: 0 0 48px;
 }
+
+/* ---- Ivy Journal display face + minimal reductions --------------------- */
+/* Titles, decks and section heads in Ivy Journal; body stays Source Serif 4
+   (a clean generic serif). Equal-specificity overrides — declared last. */
+.nav-brand,
+.page-title, .page-deck,
+.hero-title, .hero-deck,
+.prose h1, .prose h2, .prose h4 {
+  font-family: var(--display);
+}
+.hero-title, .page-title { font-weight: 600; letter-spacing: -0.02em; }
+.hero-title em, .page-deck, .hero-deck { font-style: italic; }
+
+/* Minimal: drop the decorative § on section rules — a plain hairline reads
+   cleaner and more NYT/New-Yorker than the ornament. */
+.prose hr { margin: 44px 0; }
+.prose hr::after { content: none; }
