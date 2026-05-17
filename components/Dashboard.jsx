@@ -5117,8 +5117,8 @@ function usePrerendered(seed, active) {
 // default seed at the default year, pre-engagement). The engine — and the
 // ≈29 MB tract download + ~28 s of buildTractUnits/adjacency it triggers —
 // stays completely idle until the user engages.
-function useDistricting(data, seed, tolerance = 0.05, active = true) {
-  const key = data ? `${seed}_${tolerance}` : null;
+function useDistricting(data, seed, tolerance = 0.05, active = true, model = 'recom') {
+  const key = data ? `${seed}_${tolerance}_${model}` : null;
   const [result, setResult] = useState(() => key ? CACHED_DISTRICTING.get(key) || null : null);
   const [progress, setProgress] = useState(null);
 
@@ -5136,11 +5136,16 @@ function useDistricting(data, seed, tolerance = 0.05, active = true) {
     (async () => {
       // Fast path: if this seed was pre-computed at build time, load the
       // cached partitions (skips both ReCom passes) and we're done.
-      const fromCache = await tryLoadCachedSeed(
-        seed, tolerance, data,
-        (p) => { if (!cancelled) setProgress(p); },
-        () => cancelled
-      );
+      // The committed seed caches are ReCom-baked, so only use them for
+      // the ReCom model; Splitline is deterministic and fast enough to
+      // just compute live.
+      const fromCache = model === 'recom'
+        ? await tryLoadCachedSeed(
+            seed, tolerance, data,
+            (p) => { if (!cancelled) setProgress(p); },
+            () => cancelled
+          )
+        : null;
       if (cancelled) return;
       if (fromCache) {
         CACHED_DISTRICTING.set(key, fromCache);
@@ -5179,6 +5184,7 @@ function useDistricting(data, seed, tolerance = 0.05, active = true) {
         const HARD_MAX_TRIES = 10;
         const SOFT_MIN_TRIES = 3;
         let best = null, bestDev = Infinity;
+        if (model === 'recom') {
         for (let attempt = 0; attempt < HARD_MAX_TRIES; attempt++) {
           if (cancelled) return;
           // Stop early once we've met tolerance AND done at least SOFT_MIN.
@@ -5250,6 +5256,22 @@ function useDistricting(data, seed, tolerance = 0.05, active = true) {
           }
           if (replace) { bestDev = maxDev; best = part; }
         }
+        } else {
+          // Deterministic model (shortest-splitline): ONE pass — no
+          // seed, no retry, no compactness ladder (splitline is a pure
+          // function of geography). Same per-state dispatch the state-
+          // detail view uses, so the national map now reflects the
+          // selected model instead of always showing ReCom.
+          setProgress({ done: i, total: stateCodes.length, code });
+          await new Promise((r) => setTimeout(r, 0));
+          const part = runPartition(model, stateUnits, stateAdj, sg.seats, 0);
+          if (part) {
+            const tgt = part.districtPop.reduce((s, p) => s + p, 0) / part.districtPop.length;
+            let md = 0;
+            for (const p of part.districtPop) { const d = Math.abs(p - tgt) / tgt; if (d > md) md = d; }
+            best = part; bestDev = md;
+          }
+        }
         const partition = best;
         partitions[code] = {
           partition, units: stateUnits, name: sg.name, seats: sg.seats,
@@ -5294,7 +5316,7 @@ function useDistricting(data, seed, tolerance = 0.05, active = true) {
           await new Promise((r) => setTimeout(r, 0));
           try {
             const upgraded = await upgradeStateToTracts(
-              code, data, seed, tolerance, partitions[code]
+              code, data, seed, tolerance, partitions[code], model
             );
             if (!upgraded || cancelled) continue;
             // Always replace with the tract-level partition: the renderUnits
@@ -5462,7 +5484,7 @@ async function tryLoadCachedSeed(seed, tolerance, data, onProgress, isCancelled)
 //   - maxDev is the deviation AFTER projection (this is what the UI shows
 //     because the rendering is at fragment granularity)
 //   - tractMaxDev is the underlying tract-level deviation
-async function upgradeStateToTracts(stateCode, data, seed, tolerance, prevPartition) {
+async function upgradeStateToTracts(stateCode, data, seed, tolerance, prevPartition, model = 'recom') {
   const fips = FIPS_BY_STATE_CODE[stateCode];
   if (!fips || !TRACTS_BASE_URL) return null;
 
@@ -5489,29 +5511,42 @@ async function upgradeStateToTracts(stateCode, data, seed, tolerance, prevPartit
   // moment an attempt is comfortably inside the legal bound. This makes the
   // ±5 % guarantee hold for ANY seed, not just cherry-picked ones — which
   // also keeps the pre-computed default-seed caches honest.
-  const TRACT_MAX_TRIES = 5;
-  const tractGoal = Math.min(tolerance, 0.03); // stop as soon as we're here
   let tractPart = null, tractMaxDev = Infinity;
-  for (let attempt = 0; attempt < TRACT_MAX_TRIES; attempt++) {
-    const tractSeed =
-      seed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1) +
-      31415 + attempt * 2719;
-    const cand = runReCom(
-      tractData.units, tractData.adjacency, seats, tractSeed,
-      {
-        burnIn: Math.max(400, seats * 22) + attempt * 120,
-        tolerance: Math.min(tolerance, 0.02), // aim tighter at tract level
-        compactness: attempt < 2 ? 2.0 : 3.5, // relax shape on later tries
+  if (model !== 'recom') {
+    // Deterministic model (shortest-splitline): one pass, no seed/retry.
+    const cand = runPartition(model, tractData.units, tractData.adjacency, seats, 0);
+    if (cand) {
+      let dev = 0;
+      for (const p of cand.districtPop) {
+        const d = Math.abs(p - tractTarget) / tractTarget;
+        if (d > dev) dev = d;
       }
-    );
-    if (!cand) continue;
-    let dev = 0;
-    for (const p of cand.districtPop) {
-      const d = Math.abs(p - tractTarget) / tractTarget;
-      if (d > dev) dev = d;
+      tractPart = cand; tractMaxDev = dev;
     }
-    if (dev < tractMaxDev) { tractMaxDev = dev; tractPart = cand; }
-    if (tractMaxDev <= tractGoal) break;
+  } else {
+    const TRACT_MAX_TRIES = 5;
+    const tractGoal = Math.min(tolerance, 0.03); // stop as soon as we're here
+    for (let attempt = 0; attempt < TRACT_MAX_TRIES; attempt++) {
+      const tractSeed =
+        seed * 1000 + stateCode.charCodeAt(0) * 17 + stateCode.charCodeAt(1) +
+        31415 + attempt * 2719;
+      const cand = runReCom(
+        tractData.units, tractData.adjacency, seats, tractSeed,
+        {
+          burnIn: Math.max(400, seats * 22) + attempt * 120,
+          tolerance: Math.min(tolerance, 0.02), // aim tighter at tract level
+          compactness: attempt < 2 ? 2.0 : 3.5, // relax shape on later tries
+        }
+      );
+      if (!cand) continue;
+      let dev = 0;
+      for (const p of cand.districtPop) {
+        const d = Math.abs(p - tractTarget) / tractTarget;
+        if (d > dev) dev = d;
+      }
+      if (dev < tractMaxDev) { tractMaxDev = dev; tractPart = cand; }
+      if (tractMaxDev <= tractGoal) break;
+    }
   }
   if (!tractPart) return null;
 
@@ -5660,7 +5695,7 @@ export default function USRedistrictingDashboard() {
   // partitions), so the model engine — and its ~28 s tract pipeline +
   // ~29 MB download — is switched OFF entirely while precinct is active.
   const { districting, districtingProgress } = useDistricting(
-    data, seed, 0.05, !prerenderMode && substrate !== 'precinct'
+    data, seed, 0.05, !prerenderMode && substrate !== 'precinct', model
   );
   // National precinct substrate — all 50 states, pre-baked → instant.
   const { precinctPartitions, precinctProgress } =
