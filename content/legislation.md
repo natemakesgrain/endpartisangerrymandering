@@ -494,6 +494,23 @@ partisan tilt under a given electorate) is a typical feature of neutral
 maps or an outlier. *See* DeFord, Duchin, and Solomon, *supra*, on the
 mixing properties and applied verification advantages of ReCom.
 
+*Disclosure — the demonstration dashboard's default differs from the
+statute's mandate.* The companion dashboard ships **two** neutral
+partitioners and **defaults to the deterministic shortest-splitline
+method**, not the ReCom sampler this statute would require. That is a
+deliberate demonstration choice, not a contradiction: shortest-splitline
+is the more legible *anti-gerrymandering primitive* — reproducible from
+geography alone with no seed-precommitment machinery, and auditable by a
+non-specialist — which makes it the better teaching default, while ReCom
+remains the statute's choice precisely for the ensemble/outlier analysis
+described above (a single deterministic map cannot answer "is the enacted
+plan an outlier?"). The dashboard exposes both so a reader can switch and
+see the trade-off directly; methodology §4.9 compares them in full. The
+statute mandates ReCom because its purpose is *adjudication*, not
+pedagogy; if a future Board (Part I, Sec. 5) judged a deterministic rule
+preferable, the Algorithm Reference Specification is the amendable
+instrument for that decision.
+
 **Why a graph-isoperimetric compactness criterion and no other shape-based criterion.**
 The statute imposes contiguity, population balance, and a single
 shape-based requirement: a graph-isoperimetric compactness threshold on

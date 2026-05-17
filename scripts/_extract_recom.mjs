@@ -19,5 +19,13 @@ const hdr =
 fs.mkdirSync('scripts/lib', { recursive: true });
 fs.writeFileSync('scripts/lib/recom.mjs', hdr + block + '\n');
 const out = fs.readFileSync('scripts/lib/recom.mjs', 'utf8');
+// FAIL LOUDLY on silent truncation: import the written module and
+// assert every expected entry point is callable (a syntax error or a
+// missing export from a mis-matched marker throws here, not later).
+const EXPECTED = ['makeRng', 'uniformSpanningTree', 'recomStep',
+  'recomInitialPartition', 'runReCom'];
+const mod = await import('./lib/recom.mjs?v=' + Date.now());
+const missing = EXPECTED.filter((f) => typeof mod[f] !== 'function');
+if (missing.length) throw new Error('recom.mjs extraction corrupt — missing/invalid: ' + missing.join(', '));
 console.log('recom.mjs lines', out.split('\n').length,
-  '| exports:', (out.match(/^export function (\w+)/gm) || []).join(', '));
+  '| exports OK:', (out.match(/^export function (\w+)/gm) || []).join(', '));

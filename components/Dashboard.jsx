@@ -1927,13 +1927,34 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active, mod
         // Precinct graphs are ~2-9× denser than tracts; scale burn-in with
         // size but cap so even CA (~25k precincts) stays interactive.
         const burnIn = Math.max(400, Math.min(2200, Math.round(N * 0.12)));
-        // Strict compactness so live (custom-seed) precinct districts read
-        // as compact blocks, matching the pre-baked default seeds.
-        const result = runPartition(
-          model, precinctData.units, precinctData.adjacency, seats, seed,
-          { burnIn, tolerance: 0.02, compactness: 0.9,
-            cohesion: precinctData.units.map((u) => u.fips) }
-        );
+        const cohesion = precinctData.units.map((u) => u.fips);
+        let result;
+        if (model === 'recom') {
+          // Mirror the offline bake EXACTLY (build-precincts.mjs /
+          // add-splitline-national.mjs): the same 0.9→1.4→2.2 compactness
+          // ladder, keep the lowest-deviation attempt, stop once legal.
+          // Without this a custom (un-baked) seed produced a DIFFERENT
+          // map than the bake would for the same seed — breaking the
+          // "baked == what the app computes" invariant.
+          const tot = precinctData.units.reduce((s, u) => s + (u.pop || 0), 0);
+          const tgt = tot / seats;
+          let best = null, bestDev = Infinity;
+          for (const c of [0.9, 1.4, 2.2]) {
+            if (cancelled) return;
+            const r = runPartition('recom', precinctData.units, precinctData.adjacency,
+              seats, seed, { burnIn, tolerance: 0.02, compactness: c, cohesion });
+            if (!r) continue;
+            let dev = 0;
+            for (const p of r.districtPop) { const d = Math.abs(p - tgt) / (tgt || 1); if (d > dev) dev = d; }
+            if (dev < bestDev) { best = r; bestDev = dev; }
+            if (dev <= 0.05) break;
+          }
+          result = best;
+        } else {
+          // Deterministic (splitline): one pass; seed/compactness ignored.
+          result = runPartition(model, precinctData.units, precinctData.adjacency,
+            seats, seed, { burnIn, tolerance: 0.02, compactness: 0.9, cohesion });
+        }
         if (cancelled) return;
         if (!result) throw new Error('ReCom failed to produce a partition');
         const tagged = { ...result, _elapsedMs: Date.now() - t0 };
@@ -5076,14 +5097,25 @@ function Footer() {
 const CACHED_PRECINCT_NATIONAL = new Map();      // `${baseSeed}` → { CODE: record }
 const CACHED_PRECINCT_DISTRICTS = new Map();     // fips → districts json
 
-function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom, model = 'recom') {
-  // Splitline is deterministic → one offline dissolve (dj.splitline),
-  // built by scripts/add-splitline-national.mjs. ReCom is per-seed
-  // (dj.baked[seed]). So the national precinct map reflects the model
-  // the user picked, matching the state-detail precinct view.
-  const b = model === 'splitline'
-    ? (dj && dj.splitline)
-    : (dj && dj.baked && (dj.baked[baseSeed] || dj.baked[String(baseSeed)]));
+function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom, model = 'recom', census = 2010) {
+  // National precinct is now PER-DECADE like the model substrate and the
+  // state-detail view: scripts/add-splitline-national.mjs bakes
+  // dj.byCensus[census] = { seats, splitline:{dists}, baked:{seed:{dists}} }
+  // at that census's apportionment. Splitline is deterministic (one
+  // dissolve); ReCom is per-seed. Fall back to the legacy 2020-apportioned
+  // top-level keys if a state's per-census block is missing.
+  const bc = dj && dj.byCensus && (dj.byCensus[census] || dj.byCensus[String(census)]);
+  const pick = (src) => model === 'splitline'
+    ? (src && src.splitline)
+    : (src && src.baked && (src.baked[baseSeed] || src.baked[String(baseSeed)]));
+  let b = pick(bc);
+  let seatsFromBlock = bc && bc.seats;
+  if (!b || !b.dists) { // legacy fallback (pre-byCensus data)
+    b = model === 'splitline'
+      ? (dj && dj.splitline)
+      : (dj && dj.baked && (dj.baked[baseSeed] || dj.baked[String(baseSeed)]));
+    seatsFromBlock = dj && dj.seats;
+  }
   if (!b || !b.dists) return null;
   const units = b.dists.map((d, i) => {
     const polys = d.polys && d.polys.length ? d.polys : [];
@@ -5107,25 +5139,27 @@ function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom, model = 'rec
     partition: { assignment, districtPop: new Array(k).fill(0) },
     units, renderUnits: units,
     name: (stateGeom[code] || {}).name || code,
-    seats: dj.seats || k,
+    seats: seatsFromBlock || dj.seats || k,
     maxDev: b.maxDev ?? 0,
     substrate: 'precinct',
   };
 }
 
-function usePrecinctNational(data, baseSeed, active, model = 'recom') {
-  // Splitline is deterministic so the seed is irrelevant to it — key the
-  // assembled-records cache by model (and seed, which only matters for
-  // ReCom) so switching model re-dispatches instead of returning a
-  // stale ReCom assembly.
-  const ckOf = (s, m) => (m === 'splitline' ? 'splitline' : String(s));
+function usePrecinctNational(data, baseSeed, active, model = 'recom', year = YEAR_CONFIG.defaultYear) {
+  // Per-decade like the rest of the app: the dissolved district polys
+  // come from dj.byCensus[census]. Splitline is deterministic (seed
+  // irrelevant); ReCom is per-seed. Key the assembled-records cache by
+  // model + census (+ seed for ReCom) so switching model/decade
+  // re-dispatches instead of returning a stale assembly.
+  const census = apportionmentCensusForYear(year);
+  const ckOf = (s, m, c) => (m === 'splitline' ? `splitline_${c}` : `${s}_${c}`);
   const [partitions, setPartitions] = useState(() =>
-    active ? CACHED_PRECINCT_NATIONAL.get(ckOf(baseSeed, model)) || {} : {});
+    active ? CACHED_PRECINCT_NATIONAL.get(ckOf(baseSeed, model, census)) || {} : {});
   const [progress, setProgress] = useState(null);
 
   useEffect(() => {
     if (!active || !data) { setPartitions({}); setProgress(null); return; }
-    const ck = ckOf(baseSeed, model);
+    const ck = ckOf(baseSeed, model, census);
     if (CACHED_PRECINCT_NATIONAL.has(ck)) {
       setPartitions(CACHED_PRECINCT_NATIONAL.get(ck)); setProgress(null); return;
     }
@@ -5150,7 +5184,7 @@ function usePrecinctNational(data, baseSeed, active, model = 'recom') {
       for (const [code, dj] of fetched) {
         if (cancelled) return;
         if (dj) {
-          const rec = buildPrecinctDistrictRecord(dj, code, baseSeed, data.stateGeom, model);
+          const rec = buildPrecinctDistrictRecord(dj, code, baseSeed, data.stateGeom, model, census);
           if (rec) acc[code] = rec;
         }
         done++;
@@ -5166,7 +5200,7 @@ function usePrecinctNational(data, baseSeed, active, model = 'recom') {
       setProgress(null);
     })();
     return () => { cancelled = true; };
-  }, [data, baseSeed, active, model]);
+  }, [data, baseSeed, active, model, census]);
 
   return { precinctPartitions: partitions, precinctProgress: progress };
 }
@@ -5808,7 +5842,7 @@ export default function USRedistrictingDashboard() {
   );
   // National precinct substrate — all 50 states, pre-baked → instant.
   const { precinctPartitions, precinctProgress } =
-    usePrecinctNational(data, seed, substrate === 'precinct', model);
+    usePrecinctNational(data, seed, substrate === 'precinct', model, year);
 
   // Children get a synthetic districting object depending on mode:
   //  • prerender → the committed image/summary path

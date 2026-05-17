@@ -12,7 +12,7 @@ Three pages, all client-rendered:
 
 **Two substrates.** *Model* — counties → 2020 census tracts, with within-county partisanship modeled by population density; covers all **13 cycles** (7 presidential with real MIT-EDSL county returns: 2000/04/08/12/16/20/24, plus 6 *modeled* midterms: 2002/06/10/14/18/22, labeled "MODELED"). *Precinct* — real 2020-VTD returns from Dave's Redistricting `vtd_data`, no modeling, for the four precinct cycles (2008/2012/2016/2020).
 
-**Apportionment is per-decade in the state-detail view.** A state is split into the number of districts its *governing census* assigned for that cycle (1990→2000 elections, 2000→2002-2010, 2010→2012-2020, 2020→2022-2024). The 50-state national overview intentionally stays at 2020 apportionment for both substrates (see methodology §2). So switching years is *not* a pure recolor — the state-detail district count changes by decade.
+**Apportionment is per-decade — everywhere.** A state is split into the number of districts its *governing census* assigned for that cycle (1990→2000 elections, 2000→2002-2010, 2010→2012-2020, 2020→2022-2024) in **both** the state-detail view **and** the 50-state national overview, under both models and both substrates (e.g. Montana = 1 district in 2020, 2 in 2022). So switching years is *not* a pure recolor — the national engine recomputes when you cross a decade boundary; within a decade it just recolors by that year's votes. See methodology §2.
 
 Population deviation is shown in the UI in real time:
 
@@ -98,7 +98,7 @@ node scripts/add-splitline-national.mjs # merge deterministic Splitline dissolve
 
 **Tract-level partisanship (model substrate) is modeled.** No federal authority publishes precinct→tract election crosswalks, so county votes are disaggregated to tracts by a population-density logit model, rescaled per-county-per-year to the official county totals exactly (methodology §3.4). The **precinct substrate** avoids this entirely — it is real counted 2020-VTD returns. Also: the bundled tract geometry is mapshaper-simplified, so tract populations are renormalized per county to the authoritative 2020 P1 county totals.
 
-**The national overview is an approximation of scope, by design.** It stays at 2020 apportionment and (for the model substrate) county-fragment-to-tract granularity; the per-decade, tract/precinct-exact districting is the state-detail view. This is documented, not a bug.
+**The national overview is a coarser *granularity* than the state detail, by design.** It uses county-fragment→tract units (model substrate) or pre-dissolved district polygons (precinct substrate); the tract/precinct-exact districting is the state-detail view. District *counts* now match per-decade across both views.
 
 **Two neutral algorithms; the default is deterministic.** Shortest-splitline (the default) needs *no seed* — the same geography always yields the same map. ReCom is the optional seeded sampler (default seed = 42, reseedable); different seeds produce different valid neutral maps. There is no single "fair" map — there is a *distribution* of valid maps (ReCom samples it) or a single canonical deterministic one (splitline). Neither consumes partisan or incumbency data.
 
