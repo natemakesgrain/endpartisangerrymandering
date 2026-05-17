@@ -103,7 +103,15 @@ function parseHouseCsv() {
 function isDemParty(p) {
   if (!p) return false;
   const up = p.toUpperCase();
-  return up === 'DEMOCRAT' || up === 'DEMOCRATIC' || up === 'DEMOCRATIC-FARMER-LABOR';
+  // Major-party Democratic line, INCLUDING the state affiliates that ballot
+  // under their own name: Minnesota's DFL ("DEMOCRATIC-FARMER-LABOR", and
+  // the "-FARM-LABOR" spelling MIT EDSL uses for some MN cycles) and North
+  // Dakota's Dem-NPL ("DEMOCRATIC-NPL" / "DEMOCRATIC-NONPARTISAN LEAGUE").
+  // Omitting these silently zeroed ND's Democratic vote (→ a fake ~0 %-D
+  // North Dakota in 2014/2018) and undercounted MN 2002.
+  return up === 'DEMOCRAT' || up === 'DEMOCRATIC' ||
+    up === 'DEMOCRATIC-FARMER-LABOR' || up === 'DEMOCRATIC-FARM-LABOR' ||
+    up === 'DEMOCRATIC-NPL' || up === 'DEMOCRATIC-NONPARTISAN LEAGUE';
 }
 function isRepParty(p) {
   if (!p) return false;
@@ -124,8 +132,17 @@ function stateHouseDShare(rows, year) {
   const out = {};
   for (const po of Object.keys(acc)) {
     const { d, r } = acc[po];
-    const t = d + r;
-    out[po] = t > 0 ? d / t : 0.5;
+    // A state-aggregate two-party D-share is only meaningful when BOTH
+    // major parties actually fielded a candidate somewhere in the state.
+    // If no Democrat (or no Republican) ran statewide — single-seat
+    // states whose race was R vs. an Independent/Libertarian, or an
+    // Independent incumbent: ND 2022 (R vs. Mund-I), SD 2022 (R vs.
+    // Libertarian, no D), VT 2002 (Sanders-I, no D) — there is no valid
+    // swing target. Omit the state so applyStateSwing() HOLDS the
+    // reference presidential pattern, rather than fabricating a
+    // uniform ~0 %-D (or ~100 %-D) map from a ballot quirk.
+    if (d === 0 || r === 0) continue;
+    out[po] = d / (d + r);
   }
   return out;
 }

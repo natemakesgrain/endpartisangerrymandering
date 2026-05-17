@@ -47,15 +47,24 @@ const DIR = ROOT + 'public/data/precincts';
 const VOTES = ROOT + 'public/data/votes';
 
 // Nominal real precinct cycles. DRA's 2020-VTD compilation, however, lacks
-// precinct-level returns for SOME of these in SOME states — notably 2012
-// in the single-seat states (AK/DE/MT/ND/SD/VT/WY): precinct boundaries
-// changed, so 2012 returns can't be mapped onto 2020 VTDs. So "observed"
-// is computed PER STATE below; any nominal-real cycle a state is missing
-// is modeled like the rest (it is interpolation, not extrapolation —
-// 2012 sits inside 2008..2020, so λ=1, undamped).
+// precinct-level returns for SOME of these in SOME states — specifically
+// 2012 in the seven single-seat states below: precinct boundaries changed,
+// so 2012 returns can't be mapped onto 2020 VTDs. "Observed" is therefore
+// computed PER STATE; the missing cycle is modeled like any other (it is
+// interpolation, not extrapolation — 2012 sits inside 2008..2020, λ=1).
+//
+// This is keyed off the KNOWN, stable, documented (methodology §3.5) DRA
+// gap rather than "does the file have nonzero votes for this cycle":
+// after a first modeling pass the file DOES carry a (synthetic) 2012, so
+// a nonzero-detection would silently promote modeled data to "observed"
+// on re-run and contaminate the trend fit. Keying off the fixed gap set
+// makes the pass idempotent and keeps the fit on truly-observed cycles
+// only, exactly as §3.5 describes.
 const OBS = [2008, 2012, 2016, 2020];
 const ALL = [2000, 2002, 2004, 2006, 2008, 2010, 2012,
              2014, 2016, 2018, 2020, 2022, 2024];
+// (USPS) → set of OBS cycles DRA's 2020-VTD source does not carry.
+const NO_REAL = { 2012: new Set(['AK', 'DE', 'MT', 'ND', 'SD', 'VT', 'WY']) };
 const clip = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const logit = (p) => Math.log(p / (1 - p));
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
@@ -76,12 +85,14 @@ for (const f of files) {
   if (want.length && !want.includes(st)) continue;
   const P = pj.precincts;
 
-  // Per-state observed set = the nominal real cycles that ACTUALLY carry
-  // returns in this state's file. Model every other cycle (incl. a real
-  // one DRA happens to be missing here). For the 43 states with full
-  // 2008/12/16/20 data this is exactly OBS → ȳ=2014, identical output;
-  // only the 7 single-seat states that lack 2012 change (2012 modeled).
+  // Per-state observed set = the nominal real cycles DRA actually carries
+  // for this state (= OBS minus the documented gap). Every other cycle —
+  // including a real one a state is missing — is modeled. For the 43
+  // full-data states this is exactly OBS → ȳ=2014, bit-identical output;
+  // only the 7 single-seat states that lack real 2012 differ (2012 is
+  // modeled, and never used as a fit anchor — idempotent across re-runs).
   const obsSt = OBS.filter((y) =>
+    !(NO_REAL[y] && NO_REAL[y].has(st)) &&
     P.some((p) => p.v && p.v[y] && (p.v[y][0] || p.v[y][1])));
   const obsSet = new Set(obsSt);
   const modeledSt = ALL.filter((y) => !obsSet.has(y));
