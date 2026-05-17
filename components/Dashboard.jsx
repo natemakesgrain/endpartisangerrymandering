@@ -1759,37 +1759,25 @@ function buildPrecinctUnits(pj, stateCode) {
     units[i] = u;
   }
   // Two passes over the DRA VTDs:
-  //  (a) WATER / non-territory flag. DRA ships open-water, Great-Lakes
-  //      and other uninhabited polygons as zero-population, never-voted
-  //      VTDs. The model substrate doesn't have these (its tracts are
-  //      land, so lakes are simply uncovered cream canvas inside the
-  //      state outline). To make precinct match, mark them `isWater`
-  //      and the renderer skips them entirely — fill, border mesh and
-  //      hit region — so water reads as the same neutral negative space
-  //      as the model view rather than coloured district territory.
-  //      They are pop 0 with no votes, so excluding them changes no
-  //      reported number.
-  //  (b) For the remaining vote-less BUT inhabited precincts (a real
-  //      precinct that simply has no return a given year), stamp the
-  //      county's D-share as parentDShare so unitColorForYear colours
-  //      them by county context — exactly the model substrate's
-  //      pop-zero-land behaviour.
+  //  (a) WATER flag — ONLY DRA's explicit `<county-FIPS>ZZZZZZ`
+  //      water/unassigned aggregation GEOID (the Great-Lakes / bay /
+  //      open-water polygons). The earlier "pop 0 AND never voted"
+  //      heuristic ALSO matched genuinely uninhabited LAND — Utah's
+  //      Great-Salt-Lake-Desert / BLM / federal / wilderness precincts
+  //      are pop-0 and never voted but are real territory — and
+  //      skipping them punched white holes in the map. True coastal /
+  //      Great-Lakes water is already removed universally by the
+  //      land-clip (clipped to the model county land geometry), so the
+  //      pop-0 clause is both redundant for water and wrong for empty
+  //      land. Unpopulated land now renders, coloured by county
+  //      context via parentDShare (b) — exactly the model substrate.
+  //  (b) Vote-less precincts (incl. unpopulated land) get the county's
+  //      D-share as parentDShare so unitColorForYear colours them by
+  //      county context rather than grey/white.
   {
     const cAgg = new Map(); // fips → { [yr]: [d, r] }
     for (const u of units) {
-      let everVoted = false;
-      for (const yr of YEAR_CONFIG.allYears) {
-        const v = u.votes[yr];
-        if (v && (v.d + v.r) > 0) { everVoted = true; break; }
-      }
-      // DRA marks each county's water/unassigned aggregation VTD with a
-      // `<5-digit-county>ZZZZZZ` GEOID — these are the Great-Lakes /
-      // bay / open-water polygons (36 % of Michigan's precinct AREA).
-      // Some carry trivial residual census pop/votes so the pop===0
-      // test alone misses them; the id convention is the reliable
-      // signal. (Plain pop-0-never-voted still also counts as water.)
-      u.isWater = /ZZZZZZ$/.test(u.id) ||
-        ((u.pop || 0) === 0 && !everVoted);
+      u.isWater = /ZZZZZZ$/.test(u.id);
       if (u.isWater) continue; // don't let water skew county aggregates
       let m = cAgg.get(u.fips); if (!m) cAgg.set(u.fips, (m = {}));
       for (const yr of YEAR_CONFIG.allYears) {
