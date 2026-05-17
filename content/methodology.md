@@ -51,7 +51,7 @@ This dashboard generates maps **algorithmically**, with no input from political 
 | 2012, 2014, 2016, 2018, 2020 | 2010 | 36 |
 | 2022, 2024 | 2020 | 38 |
 
-So viewing 2004 splits each state into its **2000-census** district count (Texas 32, New York 29, Ohio 18, Florida 25), and viewing 2022 uses the 2020-census count (Texas 38, New York 26, Ohio 15, Florida 28); Montana is one district in 2020 (2010 census) and two in 2022 (2020 census). This per-decade apportionment is applied **exactly** in **both** the enlarged state-detail view *and* the 50-state national overview, under **both** partitioners and **both** substrates. The national model engine is keyed by the cycle's governing census and recomputes when you cross a decade boundary (within a decade the same partition is just recolored by that year's votes); the national precinct view ships per-census dissolved district polygons (`scripts/add-splitline-national.mjs` bakes the 2000- and 2010-census apportionments — the only ones the precinct cycles touch — for both models). The national and state-detail district counts therefore agree for every cycle. (The committed default-seed ReCom mosaics are 2020-apportioned and so are used only in the 2020-census decade; every other decade/model computes live.)
+So viewing 2004 splits each state into its **2000-census** district count (Texas 32, New York 29, Ohio 18, Florida 25), and viewing 2022 uses the 2020-census count (Texas 38, New York 26, Ohio 15, Florida 28); Montana is one district in 2020 (2010 census) and two in 2022 (2020 census). This per-decade apportionment is applied **exactly** in both the enlarged state-detail view *and* the 50-state national overview, under both partitioners (shortest-splitline and ReCom). The single precinct substrate spans all 13 cycles, hence all **four** governing censuses (1990 for the 2000 election, 2000, 2010, 2020); `scripts/add-splitline-national.mjs` bakes per-census dissolved district polygons for both models, and the state-detail view recomputes live, keyed by the cycle's census. The national and state-detail district counts therefore agree for every cycle. (The committed default-seed ReCom mosaics are 2020-apportioned and used only in the 2020-census decade; every other decade/model computes live.)
 
 ---
 
@@ -131,6 +131,49 @@ for each year:
 The 0.45 coefficient is the discrete-tract analog of the log-density-to-logit-D slope in published national multilevel models (Rodden, Chen, and others place it in the 0.3–0.7 range; we picked a middle value). The rescaling is the critical step: it preserves the *county-level truth* of the official returns exactly while adding within-county variation along the urban-rural axis.
 
 **Limitations.** Density is the strongest non-racial predictor of partisanship, but race and education matter too — Black-majority urban tracts vote more D than non-Black urban tracts of equal density, and college-educated suburbs have shifted sharply D since 2016. A more complete model would incorporate ACS tables B02001 (race), B03002 (Hispanic origin), and B15003 (educational attainment for 25+). The build pipeline for that is straightforward (fetch via Census API given a key, embed per-tract `dLean` factors into the tract topojson) but lives outside this iteration.
+
+### 3.5 The precinct substrate, and modeling the cycles without real returns
+
+The dashboard runs on a single substrate: **real 2020-VTD precinct geometry** from Dave's Redistricting `vtd_data`, all 50 states. Dave's compiles **actually-counted precinct returns for four presidential cycles — 2008, 2012, 2016, 2020**. Those four are real, observed data. The county/tract pipeline of §3.1–3.4 is retained only to supply the *land mask* (precinct polygons are clipped to the Census county land geometry so open water reads as neutral) and the national state outlines; it no longer drives any displayed partition.
+
+For the **other nine cycles** — 2000, 2004, 2024 presidential and the six midterms (2002/06/10/14/18/22) — precinct-level returns do not exist as data. We have the **county** result for all 13 cycles (presidential = real FEC-certified county returns; midterm = the per-state U.S.-House swing model of §2). We *model* the precinct split from the county truth, using the four observed cycles to learn each precinct's partisan structure.
+
+**The model.** For precinct *p* in county *c*, in each observed year *y* ∈ {2008, 2012, 2016, 2020} where both reported, define the **logit lean of the precinct relative to its county** and its **turnout share**:
+
+```
+L_p(y) = logit(Dshare_p(y)) − logit(Dshare_c(y))      (two-party, shares clipped to [0.02, 0.98])
+s_p(y) = twoParty_p(y) / twoParty_c(y)
+```
+
+Fit, per precinct, a fixed effect plus a linear election-over-election trend by OLS on its (≤4) observed points:
+
+```
+L_p(y) ≈ α_p + β_p · (y − ȳ),   ȳ = 2014
+   α_p  the precinct's persistent partisan character vs its county
+   β_p  the precinct's OWN drift  (e.g. the post-2016 suburb→D / rural→R realignment)
+```
+
+(One observed point → α_p only, β_p = 0; none → α_p = 0, i.e. the precinct just inherits the county that year — the rescale below still makes its county exact.)
+
+For a target cycle *Y* with only the county result known, predict each precinct's two-party D-share and turnout, then **rescale per county per year**:
+
+```
+λ      = 1 − min(1, yearsOutside(2008..2020) / 12)        (extrapolation damping)
+ŷ      = clip( logit(Dshare_c(Y)) + α_p + λ · β_p · (Y − ȳ),  ±6 )
+p̂_p    = sigmoid(ŷ)
+turnout_p = s̄_p · twoParty_c(Y)                            (s̄_p = mean observed share)
+rawD_p = turnout_p · p̂_p ,   rawR_p = turnout_p · (1 − p̂_p)
+scaleD = countyD(Y) / Σ_p rawD_p ,  scaleR = countyR(Y) / Σ_p rawR_p
+D_p(Y) = round(rawD_p · scaleD) ,   R_p(Y) = round(rawR_p · scaleR)
+```
+
+The damping factor **λ** keeps the full precinct trend for the *interpolated* midterms 2010/2014/2018 (inside the 2008–2020 observation window, λ = 1) and shrinks it the further *Y* extrapolates beyond it (2024 → λ ≈ 0.67; 2004 → 0.67; 2000 → 0.33), because a precinct's measured drift is not credible projected decades outside the data; the ±6 logit clip is a final safety bound.
+
+**What is preserved exactly, and what is modeled.** The per-county-per-year rescale guarantees `Σ_p D_p(Y)` = the official county Democratic total and `Σ_p R_p(Y)` = the official county Republican total, **bit-for-bit**, for every county and cycle — identical discipline to the §3.4 tract disaggregation and the §2 midterm model. So every county-level fact (and therefore the national popular vote, and any aggregate over whole counties) is the real number. What is modeled is only the *within-county distribution* across precincts, via each precinct's learned lean and drift. Empirically this reproduces reality closely where it can be checked against the held-out structure: e.g. statewide two-party D-share comes out at Florida 2000 = 50.0 % (the 537-vote election), Florida 2004 = 47.5 %, Utah 2004 = 26.7 %, Wisconsin 2004 = 50.2 % / 2018 = 53.8 % — because the county totals are exact and only the precinct split is inferred.
+
+**Honest labelling.** The four observed cycles are shown as real returns. The nine modeled cycles are labelled **MODELED** in the headline and the map lede; the six midterms are doubly modeled (their county figure is itself the §2 House-swing estimate) and say so. `scripts/model-precinct-votes.mjs` is the reference implementation and writes `modeledYears` into each state's file so the UI can never mislabel a cycle.
+
+**Limitations.** β_p is a single linear trend fit on four points spanning 2008–2020; it cannot capture non-linear realignments or one-off local shocks, and far-extrapolated cycles (2000, the early midterms) lean heavily on α_p with β_p damped toward zero. Precincts that did not report in any observed cycle fall back to their county's uniform share. The model assumes a precinct's relationship to its county is the stable quantity — the standard assumption in the redistricting-analysis literature (uniform-partisan-swing with unit fixed effects) and the same family as §3.4 and §2 — but it is an assumption, and the modeled cycles are presented as estimates, not returns.
 
 ---
 
