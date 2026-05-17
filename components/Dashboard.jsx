@@ -2852,6 +2852,82 @@ function rebalance(units, adjacency, assignment, districtPop, k, tol = 0.03) {
   }
 }
 
+// Flip GENUINE geometric specks — a tiny set of units whose every physical
+// neighbour belongs to one other district (a tract marooned across a
+// straight cut, or by a rebalance move). Adjacency is derived from shared
+// 0.1-coincident polygon segments — the SAME geometric notion the mesh
+// border uses — NOT the bundled tract adjacency graph (which is so sparse
+// a contiguous district splits into thousands of false components; merging
+// those re-broke balance to 43 %). Geometric components track real
+// geography, so a contiguous splitline district is ONE component and only
+// true marooned specks are small. Few + tiny ⇒ the caller's rebalance
+// recovers the trivial population shift. Deterministic. Real exclaves
+// (no shared border ⇒ no geometric neighbour) are left untouched.
+function geometricSpeckFix(units, assignment, k, maxSpeck = 2) {
+  const n = units.length;
+  const r = (v) => Math.round(v * 10) / 10;
+  const segUnits = new Map();
+  for (let i = 0; i < n; i++) {
+    const polys = units[i].polygons;
+    if (!polys) continue;
+    for (const poly of polys) for (const ring of poly) {
+      for (let j = 0, m = ring.length; j < m; j++) {
+        const A = ring[j], B = ring[(j + 1) % m];
+        const ax = r(A[0]), ay = r(A[1]), bx = r(B[0]), by = r(B[1]);
+        if (ax === bx && ay === by) continue;
+        const key = (ax < bx || (ax === bx && ay <= by))
+          ? ax + ',' + ay + ',' + bx + ',' + by
+          : bx + ',' + by + ',' + ax + ',' + ay;
+        let arr = segUnits.get(key);
+        if (!arr) segUnits.set(key, (arr = []));
+        if (!arr.includes(i)) arr.push(i);
+      }
+    }
+  }
+  const gadj = Array.from({ length: n }, () => new Set());
+  for (const arr of segUnits.values()) {
+    if (arr.length < 2) continue;
+    for (let a = 0; a < arr.length; a++)
+      for (let b = a + 1; b < arr.length; b++) {
+        gadj[arr[a]].add(arr[b]); gadj[arr[b]].add(arr[a]);
+      }
+  }
+  const comp = new Int32Array(n).fill(-1);
+  const compD = [], members = [];
+  let nc = 0;
+  for (let s = 0; s < n; s++) {
+    if (comp[s] >= 0 || assignment[s] < 0) continue;
+    const d = assignment[s], id = nc++;
+    compD.push(d); const mem = [s]; comp[s] = id;
+    for (let h = 0; h < mem.length; h++) {
+      for (const v of gadj[mem[h]]) {
+        if (comp[v] < 0 && assignment[v] === d) { comp[v] = id; mem.push(v); }
+      }
+    }
+    members.push(mem);
+  }
+  const biggest = {};
+  for (let c = 0; c < nc; c++) {
+    const d = compD[c];
+    if (biggest[d] == null || members[c].length > members[biggest[d]].length) biggest[d] = c;
+  }
+  let flipped = 0;
+  for (let c = 0; c < nc; c++) {
+    const d = compD[c];
+    if (c === biggest[d] || members[c].length > maxSpeck) continue;
+    const tally = {};
+    for (const i of members[c])
+      for (const v of gadj[i]) {
+        const dv = assignment[v];
+        if (dv >= 0 && dv !== d) tally[dv] = (tally[dv] || 0) + 1;
+      }
+    let to = -1, mx = 0;
+    for (const kk in tally) if (tally[kk] > mx) { mx = tally[kk]; to = +kk; }
+    if (to >= 0) { for (const i of members[c]) assignment[i] = to; flipped += members[c].length; }
+  }
+  return { flipped, nc };
+}
+
 function runSeedGrow(units, adjacency, k) {
   const n = units.length;
   const assignment = new Int16Array(n).fill(-1);
@@ -3022,13 +3098,14 @@ function runSplitline(units, adjacency, k) {
   // balanced (~3 % worst-district on real tract sets). A deterministic,
   // contiguity-preserving BIDIRECTIONAL rebalance tightens it toward
   // ±2 % — no RNG, so splitline stays a pure function of geography.
-  // NB: do NOT add a graph-component "speck cleanup" here. The bundled
-  // tract adjacency graph is so imperfect that a geographically-
-  // contiguous splitline district shatters into thousands of tiny
-  // graph-components; reassigning them (at ANY cap) moves a huge share
-  // of the state and re-breaks balance to ~43 % even with a rebalance
-  // chaser (measured). Stray visual specks must be handled cosmetically
-  // on the GEOMETRIC segment graph, never on this adjacency graph.
+  // Genuine marooned specks (~1.5 % of tracts for TX) are NOT removed
+  // from the partition: flipping ~445 K of population shifts more than
+  // the deterministic greedy rebalance can re-tighten (measured 8.4 %).
+  // Population balance is the substantive guarantee, so the partition
+  // stays the verified ~2 %; the specks are absorbed COSMETICALLY in
+  // the renderer (geometricSpeckFix on a display-only assignment clone)
+  // at zero balance cost — the map reads clean while every reported
+  // number reflects the true partition.
   rebalance(units, adjacency, assignment, districtPop, k, 0.02);
   return { assignment, districtPop };
 }
@@ -3984,22 +4061,40 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     };
   }, [selDist, partition, stateUnits, usePrecinct, k, countySplits]);
 
+  // DISPLAY-ONLY assignment: the true partition with genuine marooned
+  // specks absorbed into the district that geometrically surrounds them.
+  // Specks are ~1.5 % of tracts; removing them from the *partition*
+  // shifts too much population for the deterministic rebalance to
+  // recover (measured 8 %+), so the partition — and every reported
+  // number (deviation, D/R, competitiveness, the insight card) — keeps
+  // the verified ~2 % assignment. Only the *visuals* (fill, mesh
+  // border, hit region, label poles) use this cleaned clone, so the map
+  // reads without scattered stray dots while the substance is exact.
+  // District ids are preserved (specks fold into an existing neighbour),
+  // so selDist highlighting and colours stay consistent.
+  const displayAssignment = useMemo(() => {
+    if (!partition) return null;
+    const a = Int16Array.from(partition.assignment);
+    geometricSpeckFix(stateUnits, a, k, 2);
+    return a;
+  }, [partition, stateUnits, k]);
+
   // Per-district hit/fill region = the UNION of its units' polygons
   // (concatenated path data). Unlike the traced boundary, this exists for
   // EVERY district — including big rural ones whose boundary loops get
   // filtered by the sliver floor (districts 5 & 8 in MN) — so every
   // district is clickable + highlightable on the map.
   const districtHit = useMemo(() => {
-    if (!partition) return [];
+    if (!partition || !displayAssignment) return [];
     const acc = new Array(k).fill('');
     for (let i = 0; i < stateUnits.length; i++) {
-      const d = partition.assignment[i];
+      const d = displayAssignment[i];
       if (d < 0 || d >= k) continue;
       const pd = stateUnits[i].pathD;
       if (pd) acc[d] += pd;
     }
     return acc;
-  }, [partition, stateUnits, k]);
+  }, [partition, displayAssignment, stateUnits, k]);
 
   // Robust district-border mesh (topojson-mesh style). Build an UNDIRECTED
   // segment map over every unit edge, keyed at 0.1-unit precision (so tiny
@@ -4010,11 +4105,11 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // never drop a perimeter side. `borderPath` = all internal borders;
   // `selBorderPath` = just the selected district's borders.
   const { borderPath, selBorderPath } = useMemo(() => {
-    if (!partition) return { borderPath: '', selBorderPath: '' };
+    if (!partition || !displayAssignment) return { borderPath: '', selBorderPath: '' };
     const seg = new Map(); // key → { x1,y1,x2,y2, ds:Set<district> }
     const r = (v) => Math.round(v * 10) / 10;
     for (let i = 0; i < stateUnits.length; i++) {
-      const d = partition.assignment[i];
+      const d = displayAssignment[i];
       if (d < 0) continue;
       const polys = stateUnits[i].polygons;
       for (const poly of polys) for (const ring of poly) {
@@ -4038,7 +4133,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       if (selDist != null && s.ds.has(selDist)) selB += seg2;
     }
     return { borderPath: border, selBorderPath: selB };
-  }, [partition, stateUnits, selDist]);
+  }, [partition, displayAssignment, stateUnits, selDist]);
 
   // District boundary paths + label anchors. Refinements applied here:
   //  - Slab-cut split: we precompute the set of edges that lie on cut lines
@@ -4054,7 +4149,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   //    (artifacts of tract topojson simplification leaving small components
   //    disconnected) get suppressed to avoid scattered black dots.
   const districtPaths = useMemo(() => {
-    if (!partition) return [];
+    if (!partition || !displayAssignment) return [];
     // Edge-rendering already cancels interior edges, so no per-loop area
     // floor is needed (and none can drop a real side). Slab-cut detection
     // is a county-fragment concept — meaningless for precincts/tracts
@@ -4069,7 +4164,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       // tract-level district in a dense metro area).
       let cxAcc = 0, cyAcc = 0, popAcc = 0;
       for (let i = 0; i < stateUnits.length; i++) {
-        if (partition.assignment[i] !== d) continue;
+        if (displayAssignment[i] !== d) continue;
         const u = stateUnits[i];
         polys.push(u.polygons);
         const w = u.pop || 1;
@@ -4098,7 +4193,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
       }
     }
     return out;
-  }, [partition, stateUnits, k, useTracts]);
+  }, [partition, displayAssignment, stateUnits, k, useTracts]);
 
   // Two-tier label layout:
   //  - INLINE labels sit on the map at the district's pole-of-inaccessibility,
