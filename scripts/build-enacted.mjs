@@ -51,6 +51,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { geoAlbersUsa } from 'd3-geo';
 import mapshaper from 'mapshaper';
+import { loadHouseReturns } from './lib/house-returns.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const OUT = ROOT + 'public/data/enacted';
@@ -59,6 +60,14 @@ const TMP = ROOT + '.enacted-tmp';
 const SH = { shell: 'bash' };
 const bp = (p) => p.replace(/^([A-Za-z]):/, (_, d) => '/' + d.toLowerCase());
 const sh = (cmd) => execSync(cmd, SH);
+
+// REAL per-district U.S. House results (MIT EDSL, 2000–2022). The Enacted
+// view shows the real districts colored by the real House outcome — so the
+// per-district winner IS the documented result, not a presidential proxy
+// (methodology §3.6). Cycles MEDSL doesn't itemize (a few pre-2010
+// uncontested seats) and 2024 (not in the 1976–2022 academic dataset)
+// fall back to the two-party precinct lean, flagged `est`.
+const HOUSE = loadHouseReturns(ROOT + 'data-cache/house_1976-2022.csv', 2000);
 
 const proj = geoAlbersUsa().scale(1300).translate([487.5, 305]);
 const QUANT = 100;
@@ -355,17 +364,41 @@ for (const fips of targets) {
     }
     const { assign, outPolys, dpop } = asnByKey.get(src.key);
 
-    // Aggregate THIS cycle's precinct votes into the enacted districts.
+    // Two-party precinct lean per district — kept ONLY as the fallback
+    // shade for seats with no itemized real House return.
     const dv = Array.from({ length: seats }, () => [0, 0]);
     for (let i = 0; i < P.length; i++) {
       const d = assign[i]; if (d < 0) continue;
       const v = P[i].v && P[i].v[year]; if (!v) continue;
       dv[d][0] += v[0] || 0; dv[d][1] += v[1] || 0;
     }
-    out.byYear[year] = {
-      seats, source: src.key,
-      dists: outPolys.map((polys, d) => ({ polys, pop: dpop[d], v: { [year]: dv[d] } })),
-    };
+
+    // The Enacted view's whole point: the real districts colored by the
+    // REAL House outcome. Join Census CD code → integer district number →
+    // MEDSL returns. Independent winners (e.g. Sanders-VT 2000–04) are
+    // neither D nor R (v=[0,0], w='O') — matching how the official seat
+    // table excludes them. Seats MEDSL doesn't itemize (a handful of
+    // pre-2010 uncontested races) and 2024 (absent from the 1976–2022
+    // dataset) fall back to the two-party precinct lean, flagged `est`.
+    const hs = (HOUSE[year] || {})[usps] || {};
+    let nEst = 0;
+    const dists = outPolys.map((polys, d) => {
+      const distNum = parseInt(st.codes[d], 10);   // 0 = at-large
+      const hr = Number.isFinite(distNum) ? hs[distNum] : null;
+      let v, w, est = false;
+      if (hr) {
+        if (hr.winner === 'O') { v = [0, 0]; w = 'O'; }
+        else { v = [hr.d, hr.r]; w = hr.winner; }
+      } else {
+        v = dv[d];
+        w = (v[0] > v[1]) ? 'D' : 'R';
+        est = true; nEst++;
+      }
+      const o = { polys, pop: dpop[d], v: { [year]: v }, w };
+      if (est) o.est = true;
+      return o;
+    });
+    out.byYear[year] = { seats, source: src.key, dists, est: nEst || undefined };
   }
 
   writeFileSync(`${OUT}/${fips}.json`, JSON.stringify(out));

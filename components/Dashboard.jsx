@@ -1205,9 +1205,10 @@ const PRECINCTS_BASE_URL =
 // The ACTUAL enacted congressional districts per cycle (U.S. Census
 // cartographic-boundary CD shapefiles → scripts/build-enacted.mjs →
 // /data/enacted/<fips>.json: { byYear:{ "2000":{seats,dists:[{polys,pop,
-// v}]} } }). Same Albers space as the precinct substrate, colored by the
-// same per-cycle precinct vote — so "Enacted" is an apples-to-apples
-// comparison against the Splitline/ReCom algorithmic maps.
+// v,w}]} } }). Same Albers space as the precinct substrate. Colored by
+// the REAL U.S. House result (MEDSL per-district returns 2000–2022; the
+// official seat tally drives the headline) — Splitline/ReCom show what a
+// neutral map yields from the two-party vote; the gap is the gerrymander.
 const ENACTED_BASE_URL =
   (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_ENACTED_BASE_URL) ||
   '/data/enacted/';
@@ -3372,7 +3373,15 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
       popVariance = { worstDev: s.worstDev, worstCode: s.worstCode, inside: s.inside, total: s.total };
     }
   } else if (districting) {
-    seats = aggregateNationalSeats(districting, year);
+    // Enacted = the REAL map → the REAL documented House result (Clerk of
+    // the House / YEAR_CONFIG.actualHouse), identical to the ACTUAL HOUSE
+    // cell by construction. MEDSL per-district winners already sum to this
+    // for 2000–2022; pinning the headline to the canonical table
+    // guarantees EXACT equality every cycle, incl. 2024 (whose
+    // per-district returns aren't in the academic dataset — see §3.6).
+    seats = (districting.enacted && actualHouse)
+      ? { dSeats: actualHouse.d, rSeats: actualHouse.r, totalSeats: TOTAL_SEATS, competitive: actualHouse.competitive }
+      : aggregateNationalSeats(districting, year);
     let worstDev = 0, worstCode = null, inside = 0, total = 0;
     for (const [code, p] of Object.entries(districting.partitions)) {
       if (!p.partition || p.seats <= 1) continue;
@@ -3474,7 +3483,7 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
                 key={key}
                 onClick={() => setModel && setModel(key)}
                 title={key === 'enacted'
-                  ? 'The actual congressional districts this cycle, from U.S. Census cartographic-boundary CD shapefiles — the real legislature-/court-drawn map, colored by the same precinct vote so it is directly comparable to the algorithmic maps.'
+                  ? 'The actual congressional districts this cycle (U.S. Census CD shapefiles), colored by the REAL U.S. House result — the seat tally equals the official outcome. Splitline/ReCom show what a neutral map yields from the two-party vote; the gap is the gerrymander.'
                   : key === 'recom'
                   ? 'Recombination Markov chain (DeFord–Duchin–Solomon) with a metro-cohesion bonus that resists splitting a metro area across districts. Random but reproducible from the published seed.'
                   : "Deterministic shortest-splitline (rangevoting.org): recursively cut with the shortest line giving the right population split. Exactly equipopulous, ignores communities."}
@@ -4012,16 +4021,17 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
           <p style={S.sectionLede} className="r-sectionlede">
             {model === 'enacted' ? (
               <>
-                <strong>The real enacted map — all 50 states, {year}.</strong> These are the actual
-                congressional districts in force that cycle, from <strong>U.S. Census cartographic-boundary
-                CD shapefiles</strong> (mid-decade court redraws captured; methodology §3.6). They are colored
-                by the <em>same</em> precinct vote as the algorithmic maps —{' '}
-                {PRECINCT_YEARS.includes(year)
-                  ? <><strong>real counted precinct returns</strong> ({year} is one of the four observed cycles, 2008/’12/’16/’20)</>
-                  : <><strong>precinct-MODELED</strong> from county truth (§3.5)</>}
-                {' '}— so flipping between <strong>Enacted</strong>, <strong>Splitline</strong> and{' '}
-                <strong>ReCom</strong> is an apples-to-apples comparison of the real gerrymander against the
-                neutral baselines. <strong>Click any state</strong> for per-district detail.
+                <strong>The real enacted map — all 50 states, {year}.</strong> The actual
+                congressional districts in force that cycle (<strong>U.S. Census</strong> CD shapefiles;
+                mid-decade court redraws captured), colored by the <strong>real U.S. House result</strong>:
+                each district shaded by its actual D–R margin and won by whoever actually won the seat, so the
+                seat tally <em>equals</em> the official House result.{' '}
+                {year >= 2024
+                  ? <>Per-district 2024 House returns aren’t yet in the academic dataset, so 2024 districts are shaded by two-party lean — the headline tally is still the official result (§3.6).</>
+                  : <>(Per-district returns: MIT EDSL.)</>}
+                {' '}Switch to <strong>Splitline</strong> or <strong>ReCom</strong> to see what a neutral map
+                yields from the same two-party vote — the gap <em>is</em> the gerrymander.{' '}
+                <strong>Click any state</strong> for per-district detail.
               </>
             ) : precinctMode ? (
               <>
@@ -4667,7 +4677,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           <h2 style={S.sectionTitle}>{sg.name}</h2>
           <p style={{ ...S.sectionLede, marginBottom: 0 }} className="r-sectionlede">
             {k || seats} congressional districts · {useEnacted
-              ? <>the <strong>real enacted map</strong> · U.S. Census CD · colored by {PRECINCT_YEARS.includes(year) ? 'real' : 'modeled'} {year} precinct vote</>
+              ? <>the <strong>real enacted map</strong> · U.S. Census CD · {year >= 2024 ? 'two-party lean (per-district 2024 returns pending)' : 'real ' + year + ' U.S. House result'}</>
               : <>{stateUnits.length.toLocaleString()}{' '}
                 {usePrecinct ? 'voting precincts · real ' + year + ' returns'
                   : useTracts ? 'census tracts' : 'county units'}</>} · max population deviation{' '}
@@ -5979,8 +5989,8 @@ export default function USRedistrictingDashboard() {
   const { precinctPartitions, precinctProgress } =
     usePrecinctNational(data, seed, substrate === 'precinct' && model !== 'enacted', model, year);
   // The ACTUAL enacted districts for the selected cycle (real Census CD
-  // geometry, colored by the same precinct vote) — active only when the
-  // user picks the "Enacted" map.
+  // geometry, colored by the real U.S. House result) — active only when
+  // the user picks the "Enacted" map.
   const { enactedPartitions, enactedProgress } =
     useEnactedNational(data, substrate === 'precinct' && model === 'enacted', year);
 
