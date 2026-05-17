@@ -4117,22 +4117,73 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
   // `selBorderPath` = just the selected district's borders.
   const { borderPath, selBorderPath } = useMemo(() => {
     if (!partition || !displayAssignment) return { borderPath: '', selBorderPath: '' };
-    const seg = new Map(); // key → { x1,y1,x2,y2, ds:Set<district> }
     const r = (v) => Math.round(v * 10) / 10;
+    // Pass 1: every rounded ring vertex becomes a NODE, bucketed into a
+    // 1-unit spatial grid. The bundled tract polygons don't share clean
+    // topology — one tract draws a boundary as A→C while its different-
+    // district neighbour draws A→B→C — so a plain shared-segment mesh
+    // leaves that stretch keyed by only one district and the border has
+    // gaps ("separation"). Fix: NODE the edges — split each edge at any
+    // other unit's vertex lying on it, so coincident boundaries always
+    // resolve to identical sub-segments regardless of tessellation.
+    const cell = new Map(); // "cx,cy" → [[x,y],...] unique nodes
+    const seenNode = new Set();
+    for (let i = 0; i < stateUnits.length; i++) {
+      if (displayAssignment[i] < 0) continue;
+      for (const poly of stateUnits[i].polygons) for (const ring of poly) {
+        for (let j = 0; j < ring.length; j++) {
+          const x = r(ring[j][0]), y = r(ring[j][1]);
+          const nk = x + ',' + y;
+          if (seenNode.has(nk)) continue;
+          seenNode.add(nk);
+          const ck = Math.floor(x) + ',' + Math.floor(y);
+          let arr = cell.get(ck); if (!arr) cell.set(ck, (arr = []));
+          arr.push([x, y]);
+        }
+      }
+    }
+    // Pass 2: emit (noded) undirected segments, tagged by district.
+    const seg = new Map(); // key → { x1,y1,x2,y2, ds:Set<district> }
+    const add = (ax, ay, bx, by, d) => {
+      if (ax === bx && ay === by) return;
+      const lo = (ax < bx || (ax === bx && ay <= by));
+      const key = lo ? `${ax},${ay},${bx},${by}` : `${bx},${by},${ax},${ay}`;
+      let s = seg.get(key);
+      if (!s) { s = { x1: ax, y1: ay, x2: bx, y2: by, ds: new Set() }; seg.set(key, s); }
+      s.ds.add(d);
+    };
     for (let i = 0; i < stateUnits.length; i++) {
       const d = displayAssignment[i];
       if (d < 0) continue;
-      const polys = stateUnits[i].polygons;
-      for (const poly of polys) for (const ring of poly) {
+      for (const poly of stateUnits[i].polygons) for (const ring of poly) {
         for (let j = 0, n = ring.length; j < n; j++) {
-          const A = ring[j], B = ring[(j + 1) % n];
-          const ax = r(A[0]), ay = r(A[1]), bx = r(B[0]), by = r(B[1]);
+          const ax = r(ring[j][0]), ay = r(ring[j][1]);
+          const bx = r(ring[(j + 1) % n][0]), by = r(ring[(j + 1) % n][1]);
           if (ax === bx && ay === by) continue;
-          const lo = (ax < bx || (ax === bx && ay <= by));
-          const key = lo ? `${ax},${ay},${bx},${by}` : `${bx},${by},${ax},${ay}`;
-          let s = seg.get(key);
-          if (!s) { s = { x1: ax, y1: ay, x2: bx, y2: by, ds: new Set() }; seg.set(key, s); }
-          s.ds.add(d);
+          const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+          // Collect grid nodes lying strictly on A→B (collinear + between).
+          const pts = [];
+          const cx0 = Math.floor(Math.min(ax, bx)), cx1 = Math.floor(Math.max(ax, bx));
+          const cy0 = Math.floor(Math.min(ay, by)), cy1 = Math.floor(Math.max(ay, by));
+          for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+            const arr = cell.get(cx + ',' + cy);
+            if (!arr) continue;
+            for (const [px, py] of arr) {
+              const t = ((px - ax) * dx + (py - ay) * dy) / L2;
+              if (t <= 1e-4 || t >= 1 - 1e-4) continue;
+              const cross = dx * (py - ay) - dy * (px - ax);
+              if (cross * cross > 0.0036 * L2) continue; // ≲0.06u off-line
+              pts.push([t, px, py]);
+            }
+          }
+          if (pts.length) {
+            pts.sort((p, q) => p[0] - q[0]);
+            let px = ax, py = ay;
+            for (const [, qx, qy] of pts) { add(px, py, qx, qy, d); px = qx; py = qy; }
+            add(px, py, bx, by, d);
+          } else {
+            add(ax, ay, bx, by, d);
+          }
         }
       }
     }
