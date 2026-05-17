@@ -1907,7 +1907,7 @@ function useStatePrecinctPartition(stateCode, data, seats, baseSeed, active, mod
       // The bake is at 2020 apportionment; only reuse it when this
       // cycle's decade asks for the same district count, otherwise fall
       // through and recompute live at the per-decade `seats`.
-      if (pre && pre.partition.districtPop.length === seats) {
+      if (pre && pre.districtPop.length === seats) {
         setPartition(pre); setStage('ready'); return;
       }
     }
@@ -4001,20 +4001,28 @@ function MapSection({ data, year, setYear, loadStage, districting, districtingPr
               <>
                 <strong>Precinct view — all 50 states.</strong> Every district is drawn from{' '}
                 <strong>real precinct (2020 VTD) returns</strong> — actual counted votes, no
-                county-level modeling — for the {PRECINCT_YEARS.join(', ')} presidential cycles.
-                ReCom is pre-run offline with the published seed, so the national map is exact
-                and renders instantly. <strong>Click any state</strong> to enlarge it and see
-                per-district statistics; switch to the <strong>Model</strong> view for all
-                cycles 2000–2024.
+                county-level modeling — for the {PRECINCT_YEARS.join(', ')} presidential cycles.{' '}
+                {model === 'recom'
+                  ? 'ReCom is pre-run offline with the published seed'
+                  : 'Shortest-splitline (deterministic — no seed) is pre-dissolved offline'}, so the
+                national map is exact and renders instantly. <strong>Click any state</strong> to
+                enlarge it and see per-district statistics; switch to the <strong>Model</strong>{' '}
+                view for all cycles 2000–2024.
               </>
             ) : districtingDone ? (
               <>
                 Counties are colored by their actual two-party D-share for {year}. <strong>Black outlines</strong>{' '}
-                trace the boundaries of {data ? '435' : 'algorithmically-drawn'} congressional districts produced by
-                the <strong>ReCom</strong> Markov chain (DeFord, Duchin, Solomon 2021) running on the real county
-                adjacency graph. Each state runs independently, seeded from a public seed value (changeable above) —
-                same seed, same data → same districts. <strong>Click any state</strong> to enlarge it and see
-                per-district statistics.
+                trace the boundaries of {data ? '435' : 'algorithmically-drawn'} congressional districts produced by{' '}
+                {model === 'recom' ? (
+                  <>the <strong>ReCom</strong> Markov chain (DeFord, Duchin, Solomon 2021) running on the real county
+                  adjacency graph. Each state runs independently, seeded from a public seed value (changeable above) —
+                  same seed, same data → same districts.</>
+                ) : (
+                  <>the <strong>shortest-splitline</strong> method (Warren D. Smith) running on the real county
+                  adjacency graph. Each state runs independently and <strong>deterministically</strong> — no seed:
+                  the same geography always yields the same districts.</>
+                )}{' '}
+                <strong>Click any state</strong> to enlarge it and see per-district statistics.
               </>
             ) : (
               <>
@@ -5056,8 +5064,14 @@ function Footer() {
 const CACHED_PRECINCT_NATIONAL = new Map();      // `${baseSeed}` → { CODE: record }
 const CACHED_PRECINCT_DISTRICTS = new Map();     // fips → districts json
 
-function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom) {
-  const b = dj && dj.baked && (dj.baked[baseSeed] || dj.baked[String(baseSeed)]);
+function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom, model = 'recom') {
+  // Splitline is deterministic → one offline dissolve (dj.splitline),
+  // built by scripts/add-splitline-national.mjs. ReCom is per-seed
+  // (dj.baked[seed]). So the national precinct map reflects the model
+  // the user picked, matching the state-detail precinct view.
+  const b = model === 'splitline'
+    ? (dj && dj.splitline)
+    : (dj && dj.baked && (dj.baked[baseSeed] || dj.baked[String(baseSeed)]));
   if (!b || !b.dists) return null;
   const units = b.dists.map((d, i) => {
     const polys = d.polys && d.polys.length ? d.polys : [];
@@ -5087,14 +5101,19 @@ function buildPrecinctDistrictRecord(dj, code, baseSeed, stateGeom) {
   };
 }
 
-function usePrecinctNational(data, baseSeed, active) {
+function usePrecinctNational(data, baseSeed, active, model = 'recom') {
+  // Splitline is deterministic so the seed is irrelevant to it — key the
+  // assembled-records cache by model (and seed, which only matters for
+  // ReCom) so switching model re-dispatches instead of returning a
+  // stale ReCom assembly.
+  const ckOf = (s, m) => (m === 'splitline' ? 'splitline' : String(s));
   const [partitions, setPartitions] = useState(() =>
-    active ? CACHED_PRECINCT_NATIONAL.get(String(baseSeed)) || {} : {});
+    active ? CACHED_PRECINCT_NATIONAL.get(ckOf(baseSeed, model)) || {} : {});
   const [progress, setProgress] = useState(null);
 
   useEffect(() => {
     if (!active || !data) { setPartitions({}); setProgress(null); return; }
-    const ck = String(baseSeed);
+    const ck = ckOf(baseSeed, model);
     if (CACHED_PRECINCT_NATIONAL.has(ck)) {
       setPartitions(CACHED_PRECINCT_NATIONAL.get(ck)); setProgress(null); return;
     }
@@ -5119,7 +5138,7 @@ function usePrecinctNational(data, baseSeed, active) {
       for (const [code, dj] of fetched) {
         if (cancelled) return;
         if (dj) {
-          const rec = buildPrecinctDistrictRecord(dj, code, baseSeed, data.stateGeom);
+          const rec = buildPrecinctDistrictRecord(dj, code, baseSeed, data.stateGeom, model);
           if (rec) acc[code] = rec;
         }
         done++;
@@ -5135,7 +5154,7 @@ function usePrecinctNational(data, baseSeed, active) {
       setProgress(null);
     })();
     return () => { cancelled = true; };
-  }, [data, baseSeed, active]);
+  }, [data, baseSeed, active, model]);
 
   return { precinctPartitions: partitions, precinctProgress: progress };
 }
@@ -5770,7 +5789,7 @@ export default function USRedistrictingDashboard() {
   );
   // National precinct substrate — all 50 states, pre-baked → instant.
   const { precinctPartitions, precinctProgress } =
-    usePrecinctNational(data, seed, substrate === 'precinct');
+    usePrecinctNational(data, seed, substrate === 'precinct', model);
 
   // Children get a synthetic districting object depending on mode:
   //  • prerender → the committed image/summary path
