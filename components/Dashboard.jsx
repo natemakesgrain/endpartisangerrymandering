@@ -1735,7 +1735,14 @@ function buildPrecinctUnits(pj, stateCode) {
         const v = u.votes[yr];
         if (v && (v.d + v.r) > 0) { everVoted = true; break; }
       }
-      u.isWater = (u.pop || 0) === 0 && !everVoted;
+      // DRA marks each county's water/unassigned aggregation VTD with a
+      // `<5-digit-county>ZZZZZZ` GEOID — these are the Great-Lakes /
+      // bay / open-water polygons (36 % of Michigan's precinct AREA).
+      // Some carry trivial residual census pop/votes so the pop===0
+      // test alone misses them; the id convention is the reliable
+      // signal. (Plain pop-0-never-voted still also counts as water.)
+      u.isWater = /ZZZZZZ$/.test(u.id) ||
+        ((u.pop || 0) === 0 && !everVoted);
       if (u.isWater) continue; // don't let water skew county aggregates
       let m = cAgg.get(u.fips); if (!m) cAgg.set(u.fips, (m = {}));
       for (const yr of YEAR_CONFIG.allYears) {
@@ -4244,6 +4251,22 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
     return { borderPath: border, selBorderPath: selB };
   }, [partition, displayAssignment, stateUnits, selDist]);
 
+  // Land-clip mask for the PRECINCT view. DRA VTD geometry is not
+  // land-clipped — coastal/lake precincts' polygons legally extend into
+  // the ocean, sounds and Great Lakes, and there is NO universal per-
+  // precinct attribute that flags water (NC has zero pop-0/ZZ VTDs; its
+  // "water" is populated Outer-Banks precincts whose polygons cover the
+  // sounds). The model substrate is clean only because its Census
+  // county/tract geometry IS land-clipped. So we reuse exactly that:
+  // the union of this state's model county fragments (same us-atlas
+  // projection the precinct mosaic is already aligned to) becomes an
+  // SVG clip path, so the precinct layers render only over land —
+  // identical negative-space treatment to the model view, every state.
+  const landClipD = useMemo(
+    () => (countyUnits || []).map((u) => u.pathD).join(''),
+    [countyUnits]
+  );
+
   // District boundary paths + label anchors. Refinements applied here:
   //  - Slab-cut split: we precompute the set of edges that lie on cut lines
   //    between same-FIPS fragments. The trace closes the full loop (needed
@@ -4549,6 +4572,19 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
           >
+            {usePrecinct && landClipD && (
+              <defs>
+                <clipPath id={`pclip-${stateCode}`} clipPathUnits="userSpaceOnUse">
+                  <path d={landClipD} />
+                </clipPath>
+              </defs>
+            )}
+            {/* Geographic layers (fills, borders, hit). In the precinct
+                view these are clipped to the model county land mask so
+                un-land-clipped DRA water never paints — matching the
+                model substrate's clean negative space in every state.
+                The state outline + labels below stay UNclipped. */}
+            <g clipPath={usePrecinct && landClipD ? `url(#pclip-${stateCode})` : undefined}>
             {/* Layer 1: units colored by their own D-share. Precinct
                 water/non-territory VTDs (pop 0, never voted) are NOT
                 drawn — leaving clean cream canvas inside the state
@@ -4615,6 +4651,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 <title>District {di + 1} — click for insights</title>
               </path>
             ) : null)}
+            </g>
             {/* Layer 3: state outline as bold WHITE (with thin dark edge below for definition) */}
             <path d={sg.pathD} fill="none" stroke="#1a1a14" strokeWidth={Math.max(1.2, (x1 - x0) / 140) / zoom} strokeLinejoin="round" />
             <path d={sg.pathD} fill="none" stroke="#fdfaf2" strokeWidth={Math.max(0.9, (x1 - x0) / 200) / zoom} strokeLinejoin="round" />
