@@ -1711,6 +1711,39 @@ function buildPrecinctUnits(pj, stateCode) {
     idIdx.set(p.id, i);
     units[i] = u;
   }
+  // Per-county (precinct id prefix = 5-digit county FIPS) two-party
+  // aggregate per year, then stamp it onto every precinct as
+  // parentDShare. Vote-less precincts — open-water / park / zero-pop
+  // VTDs that DRA still ships as polygons (very common in Great-Lakes
+  // states) — then colour by their county context via the SAME
+  // unitColorForYear fallback the model substrate uses, instead of
+  // rendering as grey #ddd patches. This is the precinct analogue of
+  // the tracts' parentDShare and removes the "weird water" the user
+  // saw under the precinct view (the model substrate never had it
+  // because its tracts already carry parentDShare).
+  {
+    const cAgg = new Map(); // fips → { [yr]: [d, r] }
+    for (const u of units) {
+      let m = cAgg.get(u.fips); if (!m) cAgg.set(u.fips, (m = {}));
+      for (const yr of YEAR_CONFIG.allYears) {
+        const v = u.votes[yr];
+        if (v && (v.d + v.r) > 0) {
+          const a = m[yr] || (m[yr] = [0, 0]);
+          a[0] += v.d; a[1] += v.r;
+        }
+      }
+    }
+    const cShare = new Map();
+    for (const [cf, m] of cAgg) {
+      const s = {};
+      for (const yr of YEAR_CONFIG.allYears) {
+        const a = m[yr];
+        if (a && (a[0] + a[1]) > 0) s[yr] = a[0] / (a[0] + a[1]);
+      }
+      cShare.set(cf, s);
+    }
+    for (const u of units) u.parentDShare = cShare.get(u.fips) || {};
+  }
   // Adjacency arrives pre-built (DRA rook graph, already connectivity-
   // bridged by the pipeline). Defensively dedupe + drop self/out-of-range.
   const adjacency = pj.adjacency.map((nbrs, i) => {
