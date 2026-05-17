@@ -120,10 +120,17 @@ export function rebalance(units, adjacency, assignment, districtPop, k, tol = 0.
 // a contiguous district splits into thousands of false components; merging
 // those re-broke balance to 43 %). Geometric components track real
 // geography, so a contiguous splitline district is ONE component and only
-// true marooned specks are small. Few + tiny ⇒ the caller's rebalance
-// recovers the trivial population shift. Deterministic. Real exclaves
-// (no shared border ⇒ no geometric neighbour) are left untouched.
-function geometricSpeckFix(units, assignment, k, maxSpeck = 2) {
+// true marooned specks are small. Deterministic. Real exclaves (no shared
+// border ⇒ no geometric neighbour) are left untouched.
+//
+// Used RENDER-ONLY (display assignment clone), so it has zero balance
+// cost and can be generous: a non-largest component is absorbed iff it is
+// ≤ maxSpeck units AND smaller than `relFrac` of its district's main
+// component. The relative guard is the real discriminator — it folds in
+// cut-artifact specks (a handful of tracts vs a 150-tract body) while
+// preserving a LEGITIMATELY split district (two substantial pieces from a
+// straight cut across a bay/concavity render as the real two pieces).
+function geometricSpeckFix(units, assignment, k, maxSpeck = 25, relFrac = 0.3) {
   const n = units.length;
   const r = (v) => Math.round(v * 10) / 10;
   const segUnits = new Map();
@@ -174,7 +181,11 @@ function geometricSpeckFix(units, assignment, k, maxSpeck = 2) {
   let flipped = 0;
   for (let c = 0; c < nc; c++) {
     const d = compD[c];
-    if (c === biggest[d] || members[c].length > maxSpeck) continue;
+    if (c === biggest[d]) continue;
+    const sz = members[c].length;
+    // Tiny vs maxSpeck AND minor relative to the district's main body —
+    // the relative test is what protects a genuinely split district.
+    if (sz > maxSpeck || sz >= members[biggest[d]].length * relFrac) continue;
     const tally = {};
     for (const i of members[c])
       for (const v of gadj[i]) {
