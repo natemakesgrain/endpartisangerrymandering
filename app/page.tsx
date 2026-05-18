@@ -6,7 +6,7 @@ export default function HomePage() {
       <header className="feature-head">
         <p className="feature-rubric">A neutral baseline · 435 seats · 2000–2024</p>
         <h1 className="feature-hl">
-          The gap <em>is</em> the gerrymander.
+          What if <em>no one</em> drew the lines?
         </h1>
         <p className="feature-dek">
           Set the districts a state <strong>actually enacted</strong> beside a
