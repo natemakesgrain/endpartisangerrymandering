@@ -2,42 +2,53 @@ import Dashboard from '@/components/Dashboard';
 
 export default function HomePage() {
   return (
-    <>
-      <section className="hero">
-        <div>
-          <p className="hero-kicker">435 districts · 50 states · 2000–2024</p>
-          <h1 className="hero-title">
-            What if the map were drawn from the <em>geography</em>, not the politics?
-          </h1>
-          <p className="hero-deck">
-            Set the districts a state actually enacted beside a neutral map
-            drawn from the same ground — same voters, no map-maker. The gap
-            is the gerrymander.
-          </p>
+    <article className="feature">
+      <header className="feature-head">
+        <p className="feature-rubric">A neutral baseline · 435 seats · 2000–2024</p>
+        <h1 className="feature-hl">
+          The gap <em>is</em> the gerrymander.
+        </h1>
+        <p className="feature-dek">
+          Set the districts a state <strong>actually enacted</strong> beside a
+          neutral map drawn from the same votes — same voters, no map-maker.
+          Pick any cycle from 2000 to 2024; click any state.
+        </p>
+      </header>
+
+      <Dashboard />
+
+      <section className="feature-explain">
+        <h2>What you’re looking at.</h2>
+        <div className="explain-cols">
+          <section>
+            <h3>The enacted map</h3>
+            <p>
+              The districts a state actually used that cycle — U.S. Census
+              shapefiles, colored by the real U.S. House result. Its seat tally
+              is the official, documented outcome.
+            </p>
+            <p><a href="/data">Data &amp; sources →</a></p>
+          </section>
+          <section>
+            <h3>The neutral baselines</h3>
+            <p>
+              Splitline and ReCom redraw all 435 seats from population and
+              geography alone — no map-maker, no partisan or incumbency input,
+              reproducible from a published rule.
+            </p>
+            <p><a href="/methodology">Methodology →</a></p>
+          </section>
+          <section>
+            <h3>What the gap means</h3>
+            <p>
+              Hold the votes fixed; only the lines change. The distance between
+              the enacted plan and a neutral one is the structural effect of
+              how the map was drawn.
+            </p>
+            <p><a href="/legislation">The proposed law →</a></p>
+          </section>
         </div>
-        <aside className="hero-side">
-          <p>
-            <strong>How to read this</strong>
-            Pick any cycle from 2000 to 2024. Switch between the{' '}
-            <em>enacted</em> map and two neutral baselines. Click any state
-            to zoom in and read it district by district.
-          </p>
-          <p>
-            <strong>What it isn&apos;t</strong>
-            The neutral maps are not any state&apos;s official plan — they
-            are reproducible baselines for comparison. Cycles without real
-            precinct returns are modeled from official county results;
-            which cycles, and how, is set out in full on the Methodology
-            and Data pages.
-          </p>
-        </aside>
       </section>
-
-      <div className="section-mark" aria-hidden="true">The dashboard</div>
-
-      <div className="dashboard-envelope">
-        <Dashboard />
-      </div>
-    </>
+    </article>
   );
 }

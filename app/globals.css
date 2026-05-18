@@ -1,77 +1,62 @@
 /* ========================================================================
-   End Partisan Gerrymandering Project — global styles
+   End Partisan Gerrymandering Project — design system
    ------------------------------------------------------------------------
-   Aesthetic: editorial civic-document. Cream paper background, warm black
-   ink, navy and brick accents. Display in a transitional serif (Source
-   Serif 4) with subhead in IBM Plex Sans for institutional feel; numerics
-   and code in JetBrains Mono. The treatment is deliberately analog —
-   thin rules, no rounded corners on body content (rounded only on the
-   district plates and buttons that already are rounded in the dashboard),
-   generous margins, justified narrow body column. Looks like a printed
-   policy brief that knows it's on a screen.
+   An editorial data-feature, re-cut after The New Yorker (display serif,
+   air, hairlines, drop caps), the NYT Upshot (the chart is the story;
+   clean control rails; small-caps rubrics; thin data tables) and 538 /
+   Silver Bulletin (a decisive signature color; everything numeric set in
+   mono). Every color is sampled from the King's Sandwich Shop photograph:
+   the sunlit whitewashed cinderblock, the deep cobalt sky, the scarlet
+   base stripe, the planter brick, the black sign lettering.
    ======================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* Ivy Journal — display face (titles, decks, section heads). Self-hosted. */
-@font-face {
-  font-family: 'Ivy Journal';
-  src: url('/fonts/IvyJournal-Light.woff2') format('woff2');
-  font-weight: 300; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'Ivy Journal';
-  src: url('/fonts/IvyJournal-LightItalic.woff2') format('woff2');
-  font-weight: 300; font-style: italic; font-display: swap;
-}
-@font-face {
-  font-family: 'Ivy Journal';
-  src: url('/fonts/IvyJournal-Regular.woff2') format('woff2');
-  font-weight: 400; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'Ivy Journal';
-  src: url('/fonts/IvyJournal-Italic.woff2') format('woff2');
-  font-weight: 400; font-style: italic; font-display: swap;
-}
-@font-face {
-  font-family: 'Ivy Journal';
-  src: url('/fonts/IvyJournal-SemiBold.woff2') format('woff2');
-  font-weight: 600; font-style: normal; font-display: swap;
-}
-@font-face {
-  font-family: 'Ivy Journal';
-  src: url('/fonts/IvyJournal-Bold.woff2') format('woff2');
-  font-weight: 700; font-style: normal; font-display: swap;
-}
+@font-face { font-family:'Ivy Journal'; src:url('/fonts/IvyJournal-Light.woff2') format('woff2');      font-weight:300; font-style:normal; font-display:swap; }
+@font-face { font-family:'Ivy Journal'; src:url('/fonts/IvyJournal-LightItalic.woff2') format('woff2'); font-weight:300; font-style:italic; font-display:swap; }
+@font-face { font-family:'Ivy Journal'; src:url('/fonts/IvyJournal-Regular.woff2') format('woff2');    font-weight:400; font-style:normal; font-display:swap; }
+@font-face { font-family:'Ivy Journal'; src:url('/fonts/IvyJournal-Italic.woff2') format('woff2');     font-weight:400; font-style:italic; font-display:swap; }
+@font-face { font-family:'Ivy Journal'; src:url('/fonts/IvyJournal-SemiBold.woff2') format('woff2');   font-weight:600; font-style:normal; font-display:swap; }
+@font-face { font-family:'Ivy Journal'; src:url('/fonts/IvyJournal-Bold.woff2') format('woff2');       font-weight:700; font-style:normal; font-display:swap; }
 
-/* Palette sampled from King's Sandwich Shop, Durham NC — warm whitewashed
-   cinderblock, deep cobalt sky, the red awning/base stripe, brick. A plain
-   Americana civic palette: paper white, ink, one blue, one red, one brick. */
 :root {
-  /* Exact tones sampled from the photograph's flat surfaces. */
-  --paper:     #f0ebdd;   /* sunlit whitewashed cinderblock */
-  --paper-2:   #ddd6c4;   /* the recessed / shadowed wall */
-  --ink:       #1a1712;   /* the black sign lettering */
-  --ink-soft:  #4a4639;   /* shade of ink */
-  --ink-faint: #8b8676;   /* faint shade of ink */
-  --rule:      rgba(26, 23, 18, 0.16);
-  --rule-faint:rgba(26, 23, 18, 0.07);
+  /* ---- Palette — sampled from the photograph ------------------------- */
+  --paper:        #f4efe2;   /* sunlit whitewashed cinderblock — canvas   */
+  --paper-2:      #ece6d6;   /* warm cream — secondary surfaces           */
+  --paper-3:      #e3dcc8;   /* deeper recess / fills                     */
+  --ink:          #161109;   /* the black sign lettering                  */
+  --ink-2:        #38332a;   /* soft ink                                  */
+  --ink-3:        #6b6555;   /* muted ink — captions, labels              */
+  --ink-4:        #9c9684;   /* faint ink — disabled, hairline text       */
+  --line:         rgba(22, 17, 9, 0.14);
+  --line-2:       rgba(22, 17, 9, 0.07);
 
-  --r-strong:  #c23c2b;   /* the red awning + base stripe */
-  --r-soft:    #d5837a;
-  --d-strong:  #1e5577;   /* the deep cobalt sky */
-  --d-soft:    #6f96b1;
-  --accent:    #90493a;   /* the planter brick — marginalia, sparingly */
+  --cobalt:       #1c557f;   /* deep sky — signature, links, Democratic   */
+  --cobalt-2:     #3d7ba6;   /* mid sky — hover                           */
+  --cobalt-pale:  #9fb8cc;   /* cloud blue — soft fills                   */
+  --scarlet:      #be2a1c;   /* base-stripe red — Republican, alert       */
+  --terra:        #ae5440;   /* the awning — warm accent                  */
+  --brick:        #7c4636;   /* planter brick — marginalia, rules         */
+  --slate:        #9aa0a0;   /* cool wall-shadow — neutral chips          */
 
-  --display:  'Ivy Journal', 'Source Serif 4', Georgia, 'Times New Roman', serif;
-  --serif:    'Source Serif 4', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
-  --sans:     'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-  --mono:     'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  /* ---- Type --------------------------------------------------------- */
+  --display: 'Ivy Journal', Georgia, 'Times New Roman', serif;
+  --serif:   'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --sans:    'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --mono:    'JetBrains Mono', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
 
-  --col-narrow:  640px;   /* longread body */
-  --col-wide:    1100px;  /* legislation, methodology code blocks */
-  --col-full:    1500px;  /* dashboard envelope */
+  /* Modular scale (≈1.26) for an editorial feature. */
+  --t-2xs: 11px;  --t-xs: 12px;  --t-sm: 14px;  --t-base: 18px;
+  --t-md: 20px;   --t-lg: 25px;  --t-xl: 32px;  --t-2xl: 41px;
+  --t-3xl: 53px;  --t-4xl: 70px; --t-5xl: 92px;
+
+  /* Spacing (8-pt) */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px; --s5: 24px;
+  --s6: 32px; --s7: 48px; --s8: 64px; --s9: 88px; --s10: 120px;
+
+  --measure: 64ch;          /* longform reading column */
+  --col-wide:  1180px;      /* feature / data-table column */
+  --col-full:  1480px;      /* dashboard envelope */
 }
 
 * { box-sizing: border-box; }
@@ -81,459 +66,287 @@ html, body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--serif);
-  font-size: 18px;
-  line-height: 1.55;
+  font-size: var(--t-base);
+  line-height: 1.62;
+  font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
-a {
-  color: var(--ink);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-  text-decoration-color: var(--rule);
-  transition: text-decoration-color 0.15s ease;
-}
-a:hover { text-decoration-color: var(--ink); }
+::selection { background: var(--cobalt); color: var(--paper); }
+
+a { color: var(--cobalt); text-decoration: none; }
+a:hover { color: var(--ink); }
+
+h1, h2, h3, h4 { font-weight: 400; margin: 0; }
 
 /* ---- Site shell -------------------------------------------------------- */
-.site {
-  min-height: 100vh;
-  display: flex; flex-direction: column;
-}
+.site { min-height: 100vh; display: flex; flex-direction: column; }
+.site > * { position: relative; }
 
-/* Subtle paper texture: a fine speckle layer that reads as toothy paper at
-   any zoom level. SVG-data-url avoids any external request. */
-/* (Paper-grain texture removed — cleaner, flatter, more minimal.) */
-.site > * { position: relative; z-index: 1; }
-
-/* ---- Navigation -------------------------------------------------------- */
-.nav {
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper);
-}
+/* ---- Masthead (New Yorker: wordmark + tracked small-caps, one rule) ---- */
+.nav { border-bottom: 1px solid var(--ink); background: var(--paper); }
 .nav-inner {
-  max-width: var(--col-full);
-  margin: 0 auto;
-  padding: 18px 32px;
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 32px;
+  max-width: var(--col-full); margin: 0 auto;
+  padding: var(--s4) var(--s6);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s6);
 }
 .nav-brand {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 20px;
-  letter-spacing: -0.01em;
-  text-decoration: none;
-  color: var(--ink);
-  display: flex; align-items: baseline; gap: 14px;
+  font-family: var(--display); font-weight: 600; font-size: 21px;
+  letter-spacing: -0.005em; color: var(--ink); text-decoration: none;
+  display: flex; align-items: center; gap: var(--s3);
 }
+.nav-brand:hover { color: var(--ink); }
 .nav-brand-mark {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  border: 1px solid var(--rule);
-  padding: 3px 8px;
-  margin-right: 4px;
+  font-family: var(--mono); font-size: var(--t-2xs); font-weight: 500;
+  letter-spacing: 0.16em; color: var(--paper); background: var(--ink);
+  padding: 4px 7px 3px;
 }
-.nav-links {
-  display: flex; gap: 28px; align-items: baseline;
-}
+.nav-links { display: flex; gap: var(--s6); align-items: center; }
 .nav-link {
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  text-decoration: none;
-  color: var(--ink-soft);
-  padding-bottom: 4px;
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  font-family: var(--sans); font-size: var(--t-2xs); font-weight: 500;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3);
+  text-decoration: none; padding: 4px 0;
+  border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
 }
 .nav-link:hover { color: var(--ink); }
-.nav-link.active {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
+.nav-link.active { color: var(--ink); border-bottom-color: var(--scarlet); }
+
+/* ---- Home: the feature ------------------------------------------------- */
+.feature { max-width: var(--col-full); margin: 0 auto; }
+
+.feature-head {
+  max-width: var(--col-wide); margin: 0 auto;
+  padding: var(--s8) var(--s6) var(--s7);
+}
+.feature-rubric {
+  font-family: var(--sans); font-size: var(--t-xs); font-weight: 600;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--scarlet);
+  margin: 0 0 var(--s5);
+  display: flex; align-items: center; gap: var(--s4);
+}
+.feature-rubric::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.feature-hl {
+  font-family: var(--display); font-weight: 300;
+  font-size: clamp(46px, 6.6vw, 86px); line-height: 1.02;
+  letter-spacing: -0.025em; color: var(--ink); margin: 0 0 var(--s5);
+  max-width: 17ch;
+}
+.feature-hl em { font-style: italic; font-weight: 300; color: var(--cobalt); }
+.feature-dek {
+  font-family: var(--display); font-style: italic; font-weight: 300;
+  font-size: var(--t-lg); line-height: 1.45; color: var(--ink-2);
+  margin: 0; max-width: 46ch;
+}
+.feature-dek strong { font-style: normal; font-weight: 600; color: var(--ink); }
+
+@media (max-width: 920px) {
+  .feature-head { padding: var(--s7) var(--s5) var(--s6); }
+  .feature-hl { font-size: clamp(40px, 9vw, 56px); }
 }
 
-/* ---- Page header (used on methodology + legislation) ------------------- */
+/* Topline result — the 538 "what the model says" line. */
+.topline {
+  max-width: var(--col-wide); margin: 0 auto;
+  padding: var(--s5) var(--s6);
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  font-family: var(--serif); font-size: var(--t-md); line-height: 1.5;
+  color: var(--ink-2);
+}
+.topline b { font-family: var(--mono); font-weight: 600; color: var(--ink); font-size: 0.96em; }
+.topline .gap { color: var(--scarlet); font-weight: 600; }
+
+/* Editorial explainer band below the map (New Yorker measure + air). */
+.feature-explain {
+  max-width: var(--col-wide); margin: 0 auto;
+  padding: var(--s9) var(--s6) var(--s10);
+}
+.feature-explain h2 {
+  font-family: var(--display); font-weight: 300;
+  font-size: var(--t-2xl); line-height: 1.08; letter-spacing: -0.02em;
+  max-width: 18ch; margin: 0 0 var(--s5);
+}
+.explain-cols {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s7);
+  margin-top: var(--s7);
+}
+.explain-cols section { border-top: 2px solid var(--ink); padding-top: var(--s4); }
+.explain-cols h3 {
+  font-family: var(--sans); font-size: var(--t-2xs); font-weight: 600;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink);
+  margin: 0 0 var(--s3);
+}
+.explain-cols p {
+  font-family: var(--serif); font-size: var(--t-sm); line-height: 1.6;
+  color: var(--ink-3); margin: 0 0 var(--s3);
+}
+.explain-cols a { font-weight: 500; }
+@media (max-width: 920px) {
+  .explain-cols { grid-template-columns: 1fr; gap: var(--s5); }
+  .feature-explain { padding: var(--s7) var(--s5) var(--s8); }
+}
+
+/* A centered hairline section break with a small-caps label (Upshot). */
+.section-rule {
+  max-width: var(--col-wide); margin: var(--s6) auto 0;
+  padding: 0 var(--s6);
+  display: flex; align-items: center; gap: var(--s4);
+  font-family: var(--sans); font-size: var(--t-2xs); font-weight: 600;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3);
+}
+.section-rule::before, .section-rule::after {
+  content: ''; flex: 1; height: 1px; background: var(--line);
+}
+
+.dashboard-envelope { max-width: var(--col-full); margin: 0 auto; }
+
+/* ---- Reading pages: head (New Yorker opener) --------------------------- */
 .page-head {
-  max-width: var(--col-wide);
-  margin: 0 auto;
-  padding: 80px 32px 48px;
-  border-bottom: 1px solid var(--rule);
+  max-width: var(--col-wide); margin: 0 auto;
+  padding: var(--s10) var(--s6) var(--s7);
+  border-bottom: 1px solid var(--ink);
 }
 .page-kicker {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  margin: 0 0 18px;
+  font-family: var(--sans); font-size: var(--t-xs); font-weight: 600;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--scarlet);
+  margin: 0 0 var(--s5);
 }
 .page-title {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: clamp(36px, 5.5vw, 64px);
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-  margin: 0 0 16px;
-  max-width: 14ch;
+  font-family: var(--display); font-weight: 300;
+  font-size: clamp(40px, 6vw, 76px); line-height: 1.02;
+  letter-spacing: -0.025em; color: var(--ink); margin: 0 0 var(--s4);
+  max-width: 16ch;
 }
 .page-deck {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 21px;
-  line-height: 1.45;
-  color: var(--ink-soft);
-  margin: 0;
-  max-width: 52ch;
+  font-family: var(--display); font-style: italic; font-weight: 300;
+  font-size: var(--t-lg); line-height: 1.45; color: var(--ink-2);
+  margin: 0; max-width: 54ch;
 }
 
-/* ---- Prose (longread body for methodology + legislation) --------------- */
+/* ---- Prose (New Yorker longform) -------------------------------------- */
 .prose {
-  max-width: var(--col-narrow);
-  margin: 0 auto;
-  padding: 48px 32px 96px;
-  font-family: var(--serif);
-  font-size: 18px;
-  line-height: 1.62;
+  max-width: var(--measure); margin: 0 auto;
+  padding: var(--s8) var(--s6) var(--s10);
+  font-family: var(--serif); font-size: 19px; line-height: 1.68;
   color: var(--ink);
 }
+.prose-wide { max-width: var(--col-wide); }
 
-.prose-wide {
-  max-width: var(--col-wide);
-  /* the legislation page uses a wider column for code-style sections */
+/* Drop cap on the opening paragraph. */
+.prose > p:first-of-type::first-letter {
+  font-family: var(--display); font-weight: 400;
+  font-size: 3.1em; line-height: 0.82;
+  float: left; padding: 6px 10px 0 0; color: var(--ink);
 }
 
 .prose h1 {
-  font-family: var(--serif);
-  font-size: 32px;
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.015em;
-  margin: 56px 0 16px;
+  font-family: var(--display); font-weight: 300; font-size: var(--t-3xl);
+  line-height: 1.05; letter-spacing: -0.022em; margin: var(--s9) 0 var(--s4);
 }
 .prose h2 {
-  font-family: var(--serif);
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-  margin: 44px 0 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--rule-faint);
+  font-family: var(--display); font-weight: 600; font-size: var(--t-xl);
+  line-height: 1.12; letter-spacing: -0.015em;
+  margin: var(--s8) 0 var(--s4); padding-top: var(--s4);
+  border-top: 1px solid var(--ink);
 }
 .prose h3 {
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  margin: 32px 0 8px;
+  font-family: var(--sans); font-size: var(--t-xs); font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3);
+  margin: var(--s6) 0 var(--s2);
 }
 .prose h4 {
-  font-family: var(--serif);
-  font-size: 19px;
-  font-weight: 600;
-  font-style: italic;
-  margin: 24px 0 6px;
+  font-family: var(--display); font-size: var(--t-md); font-weight: 600;
+  font-style: italic; margin: var(--s5) 0 var(--s2);
 }
-.prose p { margin: 0 0 18px; }
-.prose p + p { text-indent: 0; }   /* not full magazine indent — too cramped on phones */
-
-.prose strong { font-weight: 600; color: var(--ink); }
+.prose p { margin: 0 0 var(--s4); }
+.prose strong { font-weight: 600; }
 .prose em { font-style: italic; }
-
-.prose ul, .prose ol { padding-left: 22px; margin: 0 0 18px; }
-.prose ul li { list-style-type: '— '; padding-left: 8px; margin-bottom: 6px; }
-.prose ol li { padding-left: 4px; margin-bottom: 6px; }
+.prose ul, .prose ol { padding-left: var(--s5); margin: 0 0 var(--s4); }
+.prose ul li { list-style: none; padding-left: var(--s4); margin-bottom: var(--s2); position: relative; }
+.prose ul li::before { content: '—'; position: absolute; left: -4px; color: var(--brick); }
+.prose ol li { padding-left: var(--s1); margin-bottom: var(--s2); }
+.prose ol li::marker { font-family: var(--mono); font-size: 0.85em; color: var(--ink-3); }
 
 .prose blockquote {
-  margin: 28px 0;
-  padding: 0 0 0 24px;
-  border-left: 3px solid var(--accent);
-  font-style: italic;
-  color: var(--ink-soft);
+  margin: var(--s6) 0; padding: var(--s2) 0 var(--s2) var(--s5);
+  border-left: 2px solid var(--cobalt);
+  font-family: var(--display); font-style: italic; font-weight: 300;
+  font-size: var(--t-md); color: var(--ink-2);
 }
 
 .prose code {
-  font-family: var(--mono);
-  font-size: 0.86em;
-  background: var(--paper-2);
-  padding: 1px 5px;
-  border: 1px solid var(--rule-faint);
+  font-family: var(--mono); font-size: 0.84em;
+  background: var(--paper-2); padding: 1px 5px; border: 1px solid var(--line-2);
 }
-
 .prose pre {
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.55;
-  background: var(--paper-2);
-  border: 1px solid var(--rule);
-  border-left: 3px solid var(--ink);
-  padding: 16px 20px;
-  margin: 24px 0;
-  overflow-x: auto;
-  white-space: pre;
+  font-family: var(--mono); font-size: var(--t-sm); line-height: 1.55;
+  background: var(--paper-2); border: 1px solid var(--line);
+  border-left: 3px solid var(--cobalt);
+  padding: var(--s4) var(--s5); margin: var(--s5) 0; overflow-x: auto;
 }
-.prose pre code {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  font-size: inherit;
-}
+.prose pre code { background: transparent; border: 0; padding: 0; }
 
-.prose hr {
-  border: 0;
-  border-top: 1px solid var(--rule);
-  margin: 48px 0;
-  position: relative;
-}
-.prose hr::after {
-  content: '§';
-  position: absolute;
-  top: -14px; left: 50%;
-  transform: translateX(-50%);
-  background: var(--paper);
-  padding: 0 14px;
-  font-family: var(--serif);
-  font-size: 18px;
-  color: var(--ink-faint);
-}
+.prose hr { border: 0; border-top: 1px solid var(--line); margin: var(--s8) 0; }
+.prose hr::after { content: none; }
 
-.prose a {
-  color: var(--ink);
-  text-decoration: underline;
-  text-decoration-color: var(--accent);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-.prose a:hover { text-decoration-color: var(--ink); }
+.prose a { color: var(--cobalt); text-decoration: underline;
+  text-decoration-thickness: 1px; text-underline-offset: 2.5px;
+  text-decoration-color: var(--cobalt-pale); }
+.prose a:hover { color: var(--ink); text-decoration-color: var(--ink); }
+.prose h1 a, .prose h2 a, .prose h3 a, .prose h4 a { color: inherit; text-decoration: none; }
 
-/* rehype-autolink-headings wraps each heading in an <a> for direct linking.
-   We don't want those anchors styled as visible links — they're a
-   navigation affordance, not the heading itself. Strip styling. */
-.prose h1 a, .prose h2 a, .prose h3 a, .prose h4 a {
-  color: inherit;
-  text-decoration: none;
-}
-.prose h1 a:hover, .prose h2 a:hover, .prose h3 a:hover, .prose h4 a:hover {
-  text-decoration: none;
-  color: var(--ink-soft);
-}
-
+/* Upshot data tables: hairline rules, mono numerics, no zebra. */
 .prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 24px 0;
-  font-family: var(--sans);
-  font-size: 14px;
+  width: 100%; border-collapse: collapse; margin: var(--s5) 0;
+  font-family: var(--sans); font-size: var(--t-sm);
 }
 .prose th {
-  text-align: left;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  border-bottom: 2px solid var(--ink);
-  padding: 10px 12px 8px;
+  text-align: left; font-weight: 600; font-size: var(--t-2xs);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3);
+  border-bottom: 1px solid var(--ink); padding: var(--s2) var(--s3);
 }
 .prose td {
-  border-bottom: 1px solid var(--rule-faint);
-  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-2); padding: var(--s3);
   vertical-align: top;
 }
+.prose td:not(:first-child) { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-/* ---- Footer ------------------------------------------------------------ */
+/* ---- Footer (compact editorial) --------------------------------------- */
 .footer {
-  border-top: 1px solid var(--rule);
-  padding: 48px 32px;
-  font-family: var(--sans);
-  font-size: 13px;
-  color: var(--ink-soft);
+  border-top: 1px solid var(--ink); margin-top: var(--s8);
+  padding: var(--s8) var(--s6) var(--s9);
+  font-family: var(--sans); font-size: var(--t-sm); color: var(--ink-3);
 }
 .footer-inner {
-  max-width: var(--col-full);
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 40px;
+  max-width: var(--col-full); margin: 0 auto;
+  display: grid; grid-template-columns: 2.4fr 1fr 1.4fr; gap: var(--s8);
 }
 .footer-brand {
-  font-family: var(--serif);
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--ink);
-  margin-bottom: 8px;
+  font-family: var(--display); font-size: var(--t-md); font-weight: 600;
+  color: var(--ink); margin-bottom: var(--s3);
 }
-.footer p { margin: 0 0 8px; line-height: 1.55; }
-.footer a { color: var(--ink-soft); text-decoration-color: var(--rule); }
-.footer a:hover { color: var(--ink); }
+.footer p { margin: 0 0 var(--s2); line-height: 1.55; max-width: 52ch; }
+.footer a { color: var(--ink-3); text-decoration: underline;
+  text-decoration-color: var(--line); text-underline-offset: 2px; }
+.footer a:hover { color: var(--ink); text-decoration-color: var(--ink); }
 .footer h4 {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin: 0 0 12px;
+  font-family: var(--sans); font-size: var(--t-2xs); font-weight: 600;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink);
+  margin: 0 0 var(--s3);
 }
 .footer ul { list-style: none; padding: 0; margin: 0; }
-.footer ul li { margin-bottom: 6px; }
+.footer ul li { margin-bottom: var(--s2); }
 
-@media (max-width: 720px) {
-  .footer-inner { grid-template-columns: 1fr; gap: 28px; }
-  .nav-inner { padding: 14px 20px; }
-  .nav-links { gap: 16px; }
-  .page-head { padding: 56px 24px 36px; }
-  .prose { padding: 36px 24px 72px; }
+@media (max-width: 860px) {
+  .footer-inner { grid-template-columns: 1fr; gap: var(--s5); }
+  .nav-inner { padding: var(--s3) var(--s5); }
+  .nav-links { gap: var(--s5); }
+  .page-head { padding: var(--s8) var(--s5) var(--s6); }
+  .prose { padding: var(--s6) var(--s5) var(--s8); font-size: 18px; }
 }
-
-/* Narrow phones: the brand name + 3 nav links don't fit on one row, so
-   stack the bar — brand on its own line(s), links in a row beneath it.
-   Without this the links get pushed off the right edge at ≤ ~430px. */
 @media (max-width: 560px) {
-  .nav-inner {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 18px;
-  }
-  .nav-brand { font-size: 16px; gap: 10px; align-items: center; }
-  .nav-brand-mark { font-size: 10px; padding: 2px 6px; }
-  .nav-links { gap: 22px; }
-  .nav-link { font-size: 12px; }
+  .nav-inner { flex-direction: column; align-items: flex-start; gap: var(--s3); }
+  .nav-brand { font-size: 17px; }
+  .nav-links { gap: var(--s4); flex-wrap: wrap; }
 }
-
-/* ---- Hero (homepage above the dashboard) ------------------------------- */
-.hero {
-  max-width: var(--col-wide);
-  margin: 0 auto;
-  padding: 72px 32px 36px;
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 64px;
-  align-items: end;
-  border-bottom: 1px solid var(--rule);
-}
-.hero-kicker {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  margin: 0 0 18px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.hero-kicker::before {
-  content: '';
-  display: inline-block;
-  width: 28px; height: 1px;
-  background: var(--ink);
-}
-.hero-title {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: clamp(40px, 6vw, 76px);
-  line-height: 1.0;
-  letter-spacing: -0.025em;
-  margin: 0 0 24px;
-  max-width: 13ch;
-}
-.hero-title em {
-  font-style: italic;
-  font-weight: 500;
-  color: var(--d-strong);
-}
-.hero-deck {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 22px;
-  line-height: 1.4;
-  color: var(--ink-soft);
-  margin: 0;
-  max-width: 36ch;
-}
-.hero-side {
-  font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--ink-soft);
-  border-top: 2px solid var(--ink);
-  padding-top: 16px;
-}
-.hero-side p { margin: 0 0 12px; }
-.hero-side strong {
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  display: block;
-  color: var(--ink);
-  margin-bottom: 8px;
-}
-@media (max-width: 880px) {
-  .hero { grid-template-columns: 1fr; gap: 32px; padding: 48px 24px 28px; }
-}
-
-/* ---- Section divider ("BELOW: the dashboard") -------------------------- */
-.section-mark {
-  max-width: var(--col-wide);
-  margin: 32px auto 0;
-  padding: 16px 32px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
-.section-mark::before, .section-mark::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--rule);
-}
-
-/* ---- Dashboard envelope ----------------------------------------------- */
-.dashboard-envelope {
-  /* The dashboard JSX brings its own internal layout — this just gives it
-     a consistent outer width and breathing room. */
-  max-width: var(--col-full);
-  margin: 0 auto;
-  padding: 0 0 48px;
-}
-
-/* ---- Ivy Journal display face + minimal reductions --------------------- */
-/* Titles, decks and section heads in Ivy Journal; body stays Source Serif 4
-   (a clean generic serif). Equal-specificity overrides — declared last. */
-.nav-brand,
-.page-title, .page-deck,
-.hero-title, .hero-deck,
-.prose h1, .prose h2, .prose h4 {
-  font-family: var(--display);
-}
-.hero-title, .page-title { font-weight: 600; letter-spacing: -0.02em; }
-.hero-title em, .page-deck, .hero-deck { font-style: italic; }
-
-/* Minimal: drop the decorative § on section rules — a plain hairline reads
-   cleaner and more NYT/New-Yorker than the ornament. */
-.prose hr { margin: 44px 0; }
-.prose hr::after { content: none; }

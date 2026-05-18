@@ -3407,9 +3407,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
       <div>
         <div style={S.tickerKicker}>{popVoteKicker}</div>
         <div style={S.tickerScore} className="r-tickerscore">
-          <span style={{ color: dWon ? '#1e5577' : 'rgba(26,23,18,0.4)', fontWeight: dWon ? 600 : 400 }}>D {dPct}%</span>
+          <span style={{ color: dWon ? '#1c557f' : 'rgba(22,17,9,0.4)', fontWeight: dWon ? 600 : 400 }}>D {dPct}%</span>
           <span style={S.divider}>·</span>
-          <span style={{ color: !dWon ? '#c23c2b' : 'rgba(26,23,18,0.4)', fontWeight: !dWon ? 600 : 400 }}>R {rPct}%</span>
+          <span style={{ color: !dWon ? '#be2a1c' : 'rgba(22,17,9,0.4)', fontWeight: !dWon ? 600 : 400 }}>R {rPct}%</span>
         </div>
       </div>
       <div>
@@ -3419,9 +3419,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         {seats ? (
           <>
             <div style={S.tickerScore} className="r-tickerscore">
-              <span style={{ color: seats.dSeats > seats.rSeats ? '#1e5577' : 'rgba(26,23,18,0.4)', fontWeight: seats.dSeats > seats.rSeats ? 600 : 400 }}>D {seats.dSeats}</span>
+              <span style={{ color: seats.dSeats > seats.rSeats ? '#1c557f' : 'rgba(22,17,9,0.4)', fontWeight: seats.dSeats > seats.rSeats ? 600 : 400 }}>D {seats.dSeats}</span>
               <span style={S.divider}>·</span>
-              <span style={{ color: seats.rSeats > seats.dSeats ? '#c23c2b' : 'rgba(26,23,18,0.4)', fontWeight: seats.rSeats > seats.dSeats ? 600 : 400 }}>R {seats.rSeats}</span>
+              <span style={{ color: seats.rSeats > seats.dSeats ? '#be2a1c' : 'rgba(22,17,9,0.4)', fontWeight: seats.rSeats > seats.dSeats ? 600 : 400 }}>R {seats.rSeats}</span>
             </div>
             <div style={S.tickerSub} className="r-tickersub">
               {typeof seats.competitive === 'number'
@@ -3442,9 +3442,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         <div>
           <div style={S.tickerKicker}>{year} ACTUAL HOUSE</div>
           <div style={S.tickerScore} className="r-tickerscore">
-            <span style={{ color: dActualWon ? '#1e5577' : 'rgba(26,23,18,0.4)', fontWeight: dActualWon ? 600 : 400 }}>D {actualHouse.d}</span>
+            <span style={{ color: dActualWon ? '#1c557f' : 'rgba(22,17,9,0.4)', fontWeight: dActualWon ? 600 : 400 }}>D {actualHouse.d}</span>
             <span style={S.divider}>·</span>
-            <span style={{ color: !dActualWon ? '#c23c2b' : 'rgba(26,23,18,0.4)', fontWeight: !dActualWon ? 600 : 400 }}>R {actualHouse.r}</span>
+            <span style={{ color: !dActualWon ? '#be2a1c' : 'rgba(22,17,9,0.4)', fontWeight: !dActualWon ? 600 : 400 }}>R {actualHouse.r}</span>
           </div>
           <div style={S.tickerSub} className="r-tickersub">
             {typeof actualHouse.competitive === 'number'
@@ -3457,17 +3457,6 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
         <div style={S.tickerKicker}>UNITS · POPULATION</div>
         <div style={S.tickerNum}>{data.units.length.toLocaleString()}</div>
         <div style={S.tickerSub}>{(totalPop / 1e6).toFixed(1)}M people · {(totalPop / TOTAL_SEATS / 1000).toFixed(0)}K target/district</div>
-      </div>
-      <div style={S.headlineNote}>
-        <div style={S.tickerKicker}>PRECINCT DATA</div>
-        <div style={{ ...S.tickerSub, marginTop: 6, fontSize: 11, lineHeight: 1.4 }}>
-          {PRECINCT_YEARS.includes(year)
-            ? <><strong>Real counted precinct returns</strong> (2020-VTD geography). {year} is one of the four observed presidential precinct cycles.</>
-            : <><strong>Precinct-MODELED</strong> from county truth: each precinct's learned lean + drift vs its county, rescaled so county totals match exactly{YEAR_CONFIG.yearMeta(year)?.kind === 'midterm' ? ' (and the county figure is itself the modeled U.S.-House swing)' : ''}. The four real cycles are 2008/’12/’16/’20.</>}
-        </div>
-        <div style={{ ...S.tickerSub, marginTop: 4, fontSize: 10, fontStyle: 'italic' }}>
-          click a state for per-district detail
-        </div>
       </div>
       <div style={S.headlineNote}>
         <div style={S.tickerKicker}>DISTRICT MAP</div>
@@ -3492,9 +3481,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
                   fontFamily: '"JetBrains Mono", monospace',
                   fontSize: 11,
                   textAlign: 'left',
-                  background: on ? '#1a1712' : 'transparent',
-                  color: on ? '#f0ebdd' : '#1a1712',
-                  border: '1px solid rgba(26,23,18,0.25)',
+                  background: on ? '#161109' : 'transparent',
+                  color: on ? '#f4efe2' : '#161109',
+                  border: '1px solid rgba(22,17,9,0.25)',
                   cursor: 'pointer',
                   lineHeight: 1.3,
                 }}
@@ -3529,8 +3518,8 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
               fontSize: 12,
               width: 100,
               background: 'transparent',
-              color: '#1a1712',
-              border: '1px solid rgba(26,23,18,0.25)',
+              color: '#161109',
+              border: '1px solid rgba(22,17,9,0.25)',
               borderRadius: 0,
               cursor: districtingActive ? 'wait' : 'text',
               opacity: districtingActive ? 0.5 : 1,
@@ -3545,8 +3534,8 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
               fontFamily: '"JetBrains Mono", monospace',
               fontSize: 12,
               background: 'transparent',
-              color: '#1a1712',
-              border: '1px solid rgba(26,23,18,0.25)',
+              color: '#161109',
+              border: '1px solid rgba(22,17,9,0.25)',
               cursor: districtingActive ? 'wait' : 'pointer',
               opacity: districtingActive ? 0.5 : 1,
             }}
@@ -3562,9 +3551,9 @@ function HeadlineRow({ data, year, loadStage, districting, districtingProgress, 
                 padding: '6px 10px',
                 fontFamily: '"JetBrains Mono", monospace',
                 fontSize: 12,
-                background: seed === s ? '#1a1712' : 'transparent',
-                color: seed === s ? '#f0ebdd' : '#1a1712',
-                border: '1px solid rgba(26,23,18,0.25)',
+                background: seed === s ? '#161109' : 'transparent',
+                color: seed === s ? '#f4efe2' : '#161109',
+                border: '1px solid rgba(22,17,9,0.25)',
                 cursor: districtingActive ? 'wait' : 'pointer',
                 opacity: districtingActive ? 0.5 : 1,
               }}
@@ -3611,7 +3600,7 @@ function YearSelector({ year, setYear, allowedYears = null }) {
                 : `${y.label} — ${y.sub}`}
             >
               <span style={S.yearBtnYear}>{y.label}</span>
-              <span style={{ ...S.yearBtnSub, color: active ? '#f0ebdd' : y.winner === 'D' ? '#1e5577' : '#c23c2b' }}>
+              <span style={{ ...S.yearBtnSub, color: active ? '#f4efe2' : y.winner === 'D' ? '#1c557f' : '#be2a1c' }}>
                 {y.sub}
               </span>
             </button>
@@ -3757,12 +3746,12 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
   // overlay catches mouse events.
   const stateOutlinesDark = useMemo(() => {
     return Object.values(data.stateGeom).map((sg) => (
-      <path key={`d-${sg.code}`} d={sg.pathD} fill="none" stroke="#1a1712" strokeWidth="1.6" strokeLinejoin="round" pointerEvents="none" />
+      <path key={`d-${sg.code}`} d={sg.pathD} fill="none" stroke="#161109" strokeWidth="1.6" strokeLinejoin="round" pointerEvents="none" />
     ));
   }, [data]);
   const stateOutlinesWhite = useMemo(() => {
     return Object.values(data.stateGeom).map((sg) => (
-      <path key={`w-${sg.code}`} d={sg.pathD} fill="none" stroke="#f6f1e4" strokeWidth="1.0" strokeLinejoin="round" pointerEvents="none" />
+      <path key={`w-${sg.code}`} d={sg.pathD} fill="none" stroke="#ece6d6" strokeWidth="1.0" strokeLinejoin="round" pointerEvents="none" />
     ));
   }, [data]);
   const stateOverlays = useMemo(() => {
@@ -3771,7 +3760,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
         key={sg.code}
         d={sg.pathD}
         fill={hoveredState === sg.code ? 'rgba(224,159,62,0.18)' : 'transparent'}
-        stroke={hoveredState === sg.code ? '#90493a' : 'transparent'}
+        stroke={hoveredState === sg.code ? '#7c4636' : 'transparent'}
         strokeWidth={hoveredState === sg.code ? '1.6' : '0'}
         strokeLinejoin="round"
         onMouseEnter={() => setHoveredState(sg.code)}
@@ -3800,7 +3789,7 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
           fontFamily='"JetBrains Mono", monospace'
           fontWeight="700"
           fontSize={fontSize}
-          fill="#1a1712"
+          fill="#161109"
           stroke="rgba(253,250,242,0.9)"
           strokeWidth="2.5"
           paintOrder="stroke"
@@ -3825,21 +3814,21 @@ function USCountyMap({ data, year, hoveredState, setHoveredState, districting, o
                  so the user sees where boundaries fall through subdivided
                  metros without arbitrary axis-aligned cuts dominating. */}
         {districtPaths.map((dp) => dp.slabPathD ? (
-          <path key={`${dp.key}-slab`} d={dp.slabPathD} fill="none" stroke="rgba(26,23,18,0.35)" strokeWidth="0.35" strokeDasharray="0.8,0.8" strokeLinejoin="round" pointerEvents="none" />
+          <path key={`${dp.key}-slab`} d={dp.slabPathD} fill="none" stroke="rgba(22,17,9,0.35)" strokeWidth="0.35" strokeDasharray="0.8,0.8" strokeLinejoin="round" pointerEvents="none" />
         ) : null)}
         {/* District boundary: a white casing UNDER a bold dark line so it
             reads clearly over the county/tract colour mosaic (a single
             thin black line was getting lost — user feedback). */}
         {districtPaths.map((dp) => {
           if (!dp.pathD) return null;
-          const el = <path d={dp.pathD} fill="none" stroke="#f6f1e4" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" opacity="0.85" />;
+          const el = <path d={dp.pathD} fill="none" stroke="#ece6d6" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" opacity="0.85" />;
           return dp.substrate === 'precinct'
             ? <g key={`${dp.key}-c`} clipPath={`url(#natclip-${dp.key})`}>{el}</g>
             : <g key={`${dp.key}-c`}>{el}</g>;
         })}
         {districtPaths.map((dp) => {
           if (!dp.pathD) return null;
-          const el = <path d={dp.pathD} fill="none" stroke="#1a1712" strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />;
+          const el = <path d={dp.pathD} fill="none" stroke="#161109" strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />;
           return dp.substrate === 'precinct'
             ? <g key={dp.key} clipPath={`url(#natclip-${dp.key})`}>{el}</g>
             : <g key={dp.key}>{el}</g>;
@@ -3901,10 +3890,10 @@ function StateHoverInfo({ state, units, year, districting }) {
         <span><strong>D {dPct}%</strong> popular</span>
       </div>
       {districtInfo && (
-        <div style={{ ...S.hoverInfoStats, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(26,23,18,0.12)' }}>
-          <span><strong style={{ color: '#1e5577' }}>D {districtInfo.dWins}</strong> / <strong style={{ color: '#c23c2b' }}>R {districtInfo.rWins}</strong> seats</span>
+        <div style={{ ...S.hoverInfoStats, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(22,17,9,0.12)' }}>
+          <span><strong style={{ color: '#1c557f' }}>D {districtInfo.dWins}</strong> / <strong style={{ color: '#be2a1c' }}>R {districtInfo.rWins}</strong> seats</span>
           <span>·</span>
-          <span style={{ color: districtInfo.maxDev <= 0.05 ? 'rgba(26,23,18,0.7)' : '#c44536' }}>
+          <span style={{ color: districtInfo.maxDev <= 0.05 ? 'rgba(22,17,9,0.7)' : '#c44536' }}>
             max district pop dev: <strong>{(districtInfo.maxDev * 100).toFixed(0)}%</strong>
           </span>
         </div>
@@ -3930,7 +3919,7 @@ function PrerenderedMap({ data, seed, year, hoveredState, setHoveredState, onSel
         key={sg.code}
         d={sg.pathD}
         fill={hoveredState === sg.code ? 'rgba(224,159,62,0.18)' : 'transparent'}
-        stroke={hoveredState === sg.code ? '#90493a' : 'transparent'}
+        stroke={hoveredState === sg.code ? '#7c4636' : 'transparent'}
         strokeWidth={hoveredState === sg.code ? '1.6' : '0'}
         strokeLinejoin="round"
         onMouseEnter={() => setHoveredState(sg.code)}
@@ -4646,17 +4635,17 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               : <>{stateUnits.length.toLocaleString()}{' '}
                 {usePrecinct ? 'voting precincts · real ' + year + ' returns'
                   : useTracts ? 'census tracts' : 'county units'}</>} · max population deviation{' '}
-            <span style={{ color: maxDev <= 0.01 ? '#1a1712' : maxDev <= 0.05 ? '#1a1712' : '#c44536', fontWeight: 600 }}>
+            <span style={{ color: maxDev <= 0.01 ? '#161109' : maxDev <= 0.05 ? '#161109' : '#c44536', fontWeight: 600 }}>
               {(maxDev * 100).toFixed(1)}%
             </span>
             {precinctCovered && precStage === 'fetching' && (
-              <span style={{ color: 'rgba(26,23,18,0.55)' }}> · fetching precinct geometry…</span>
+              <span style={{ color: 'rgba(22,17,9,0.55)' }}> · fetching precinct geometry…</span>
             )}
             {precinctCovered && precStage === 'building' && (
-              <span style={{ color: 'rgba(26,23,18,0.55)' }}> · building precinct graph…</span>
+              <span style={{ color: 'rgba(22,17,9,0.55)' }}> · building precinct graph…</span>
             )}
             {precinctCovered && precStage === 'recom' && (
-              <span style={{ color: 'rgba(26,23,18,0.55)' }}> · running precinct-level ReCom on real returns…</span>
+              <span style={{ color: 'rgba(22,17,9,0.55)' }}> · running precinct-level ReCom on real returns…</span>
             )}
             {precinctCovered && precStage === 'error' && (
               <span style={{ color: '#c44536' }}> · precinct data unavailable ({precError ? precError.slice(0, 40) : '—'}); showing model substrate</span>
@@ -4665,13 +4654,13 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               <span style={{ color: '#c44536' }}> · no precinct file built for {sg.name}; showing the model substrate</span>
             )}
             {!precinctCovered && tractStage === 'fetching' && (
-              <span style={{ color: 'rgba(26,23,18,0.55)' }}> · fetching tract geometry…</span>
+              <span style={{ color: 'rgba(22,17,9,0.55)' }}> · fetching tract geometry…</span>
             )}
             {!precinctCovered && tractStage === 'building' && (
-              <span style={{ color: 'rgba(26,23,18,0.55)' }}> · building tract graph…</span>
+              <span style={{ color: 'rgba(22,17,9,0.55)' }}> · building tract graph…</span>
             )}
             {!precinctCovered && tractStage === 'recom' && (
-              <span style={{ color: 'rgba(26,23,18,0.55)' }}> · running tract-level ReCom…</span>
+              <span style={{ color: 'rgba(22,17,9,0.55)' }}> · running tract-level ReCom…</span>
             )}
             {!precinctCovered && tractStage === 'error' && (
               <span style={{ color: '#c44536' }}> · tract data unavailable ({tractError ? tractError.slice(0, 40) : '—'}); showing county fallback</span>
@@ -4748,7 +4737,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 key={`${dp.d}-slab`}
                 d={dp.slabPathD}
                 fill="none"
-                stroke="rgba(26,23,18,0.4)"
+                stroke="rgba(22,17,9,0.4)"
                 strokeWidth={Math.max(0.25, (x1 - x0) / 600)}
                 strokeDasharray={`${Math.max(0.6, (x1 - x0) / 300)},${Math.max(0.6, (x1 - x0) / 300)}`}
                 strokeLinejoin="round"
@@ -4759,12 +4748,12 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 map — can't drop a side), white casing under a bold dark
                 line so it reads over the colour mosaic. */}
             {borderPath && (
-              <path d={borderPath} fill="none" stroke="#f6f1e4"
+              <path d={borderPath} fill="none" stroke="#ece6d6"
                 strokeWidth={(usePrecinct ? Math.max(1.5, (x1 - x0) / 150) : Math.max(1.2, (x1 - x0) / 210)) / zoom}
                 strokeLinejoin="round" strokeLinecap="round" opacity={0.9} pointerEvents="none" />
             )}
             {borderPath && (
-              <path d={borderPath} fill="none" stroke="#1a1712"
+              <path d={borderPath} fill="none" stroke="#161109"
                 strokeWidth={(usePrecinct ? Math.max(0.85, (x1 - x0) / 230) : Math.max(0.6, (x1 - x0) / 320)) / zoom}
                 strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
             )}
@@ -4775,7 +4764,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                 fill="rgba(224,159,62,0.32)" stroke="none" pointerEvents="none" />
             ) : null}
             {selBorderPath && (
-              <path d={selBorderPath} fill="none" stroke="#90493a"
+              <path d={selBorderPath} fill="none" stroke="#7c4636"
                 strokeWidth={Math.max(1.6, (x1 - x0) / 130) / zoom}
                 strokeLinejoin="round" strokeLinecap="round" pointerEvents="none" />
             )}
@@ -4790,8 +4779,8 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             ) : null)}
             </g>
             {/* Layer 3: state outline as bold WHITE (with thin dark edge below for definition) */}
-            <path d={sg.pathD} fill="none" stroke="#1a1712" strokeWidth={Math.max(1.2, (x1 - x0) / 140) / zoom} strokeLinejoin="round" />
-            <path d={sg.pathD} fill="none" stroke="#f6f1e4" strokeWidth={Math.max(0.9, (x1 - x0) / 200) / zoom} strokeLinejoin="round" />
+            <path d={sg.pathD} fill="none" stroke="#161109" strokeWidth={Math.max(1.2, (x1 - x0) / 140) / zoom} strokeLinejoin="round" />
+            <path d={sg.pathD} fill="none" stroke="#ece6d6" strokeWidth={Math.max(0.9, (x1 - x0) / 200) / zoom} strokeLinejoin="round" />
             {/* Layer 4a: leader lines from external plates to district pole-points.
                 Drawn BEFORE plates so the line tucks under the plate edge.
                 Two-pass for visibility: dark stroke beneath, lighter accent
@@ -4802,11 +4791,11 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
               return (
                 <g key={`leader-${ext.d}`} pointerEvents="none">
                   <line x1={px} y1={py} x2={tx} y2={ty}
-                        stroke="#1a1712"
+                        stroke="#161109"
                         strokeWidth={Math.max(0.18, labelLayout.fontSize * 0.07) / zoom}
                         strokeLinecap="round" />
                   <circle cx={tx} cy={ty} r={Math.max(0.3, labelLayout.fontSize * 0.12) / zoom}
-                          fill="#1a1712" />
+                          fill="#161109" />
                 </g>
               );
             })}
@@ -4834,8 +4823,8 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                       height={plateH}
                       rx={plateR}
                       ry={plateR}
-                      fill="#f6f1e4"
-                      stroke="#1a1712"
+                      fill="#ece6d6"
+                      stroke="#161109"
                       strokeWidth={plateBorder}
                     />
                     <text
@@ -4847,7 +4836,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                       fontWeight="600"
                       fontVariationSettings='"opsz" 36'
                       fontSize={fontSize}
-                      fill="#1a1712"
+                      fill="#161109"
                       letterSpacing={digits > 1 ? '-0.02em' : 0}
                     >
                       {label}
@@ -4869,9 +4858,9 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
           <div style={S.detailPanelHeader}>
             <div style={S.tickerKicker}>SEAT TOTAL · {year}</div>
             <div style={S.detailSeats}>
-              <span style={{ color: seatsD > seatsR ? '#1e5577' : 'rgba(26,23,18,0.4)', fontWeight: seatsD > seatsR ? 600 : 400 }}>D {seatsD}</span>
-              <span style={{ margin: '0 8px', color: 'rgba(26,23,18,0.3)' }}>·</span>
-              <span style={{ color: seatsR > seatsD ? '#c23c2b' : 'rgba(26,23,18,0.4)', fontWeight: seatsR > seatsD ? 600 : 400 }}>R {seatsR}</span>
+              <span style={{ color: seatsD > seatsR ? '#1c557f' : 'rgba(22,17,9,0.4)', fontWeight: seatsD > seatsR ? 600 : 400 }}>D {seatsD}</span>
+              <span style={{ margin: '0 8px', color: 'rgba(22,17,9,0.3)' }}>·</span>
+              <span style={{ color: seatsR > seatsD ? '#be2a1c' : 'rgba(22,17,9,0.4)', fontWeight: seatsR > seatsD ? 600 : 400 }}>R {seatsR}</span>
             </div>
           </div>
           {useEnacted && selDist != null && stateUnits[selDist] && (() => {
@@ -4881,40 +4870,40 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             const tot = (v.d || 0) + (v.r || 0);
             const dsh = tot > 0 ? (100 * v.d / tot) : null;
             const wParty = u.enactedWinner;
-            const wCol = wParty === 'D' ? '#1e5577' : wParty === 'R' ? '#c23c2b' : '#6a6a5c';
+            const wCol = wParty === 'D' ? '#1c557f' : wParty === 'R' ? '#be2a1c' : '#6a6a5c';
             const num = (n) => (n || 0).toLocaleString();
             return (
-              <div style={{ borderBottom: '1px solid rgba(26,23,18,0.12)', paddingBottom: 14, marginBottom: 6 }}>
+              <div style={{ borderBottom: '1px solid rgba(22,17,9,0.12)', paddingBottom: 14, marginBottom: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <div style={S.tickerKicker}>DISTRICT {selDist + 1} · {year} U.S. HOUSE</div>
                   <button onClick={() => setSelDist(null)}
-                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(26,23,18,0.5)', lineHeight: 1, padding: 2 }}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(22,17,9,0.5)', lineHeight: 1, padding: 2 }}
                     title="Close">✕</button>
                 </div>
                 {u.enactedEst || !u.enactedCands ? (
-                  <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11, marginTop: 8, lineHeight: 1.6, color: 'rgba(26,23,18,0.7)' }}>
+                  <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11, marginTop: 8, lineHeight: 1.6, color: 'rgba(22,17,9,0.7)' }}>
                     Per-district {year} U.S. House returns aren’t in the dataset for this seat
                     — the district is shaded by the cycle’s two-party lean. The statewide seat
                     tally is still the official result.
                   </div>
                 ) : (
-                  <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, marginTop: 10, lineHeight: 1.7, color: '#1a1712' }}>
+                  <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, marginTop: 10, lineHeight: 1.7, color: '#161109' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ color: '#1e5577', fontWeight: wParty === 'D' ? 700 : 400 }}>
+                      <span style={{ color: '#1c557f', fontWeight: wParty === 'D' ? 700 : 400 }}>
                         D · {c[0] || '—'}{wParty === 'D' ? ' ✓' : ''}</span>
-                      <span style={{ color: '#1e5577' }}>{num(v.d)}</span>
+                      <span style={{ color: '#1c557f' }}>{num(v.d)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ color: '#c23c2b', fontWeight: wParty === 'R' ? 700 : 400 }}>
+                      <span style={{ color: '#be2a1c', fontWeight: wParty === 'R' ? 700 : 400 }}>
                         R · {c[1] || '—'}{wParty === 'R' ? ' ✓' : ''}</span>
-                      <span style={{ color: '#c23c2b' }}>{num(v.r)}</span>
+                      <span style={{ color: '#be2a1c' }}>{num(v.r)}</span>
                     </div>
                     {wParty === 'O' && c[2] && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#6a6a5c', fontWeight: 700 }}>
                         <span>I · {c[2]} ✓</span><span>won</span>
                       </div>
                     )}
-                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(26,23,18,0.1)', color: wCol, fontWeight: 600 }}>
+                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(22,17,9,0.1)', color: wCol, fontWeight: 600 }}>
                       Won by {c[2] || '—'}{wParty === 'O' ? ' (Independent)' : wParty === 'D' ? ' (D)' : ' (R)'}
                       {dsh != null && wParty !== 'O' ? ` · ${dsh.toFixed(1)}% D two-party` : ''}
                     </div>
@@ -4924,69 +4913,69 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             );
           })()}
           {insight && (
-            <div style={{ borderBottom: '1px solid rgba(26,23,18,0.12)', paddingBottom: 14, marginBottom: 6 }}>
+            <div style={{ borderBottom: '1px solid rgba(22,17,9,0.12)', paddingBottom: 14, marginBottom: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div style={S.tickerKicker}>DISTRICT {insight.d + 1} · INSIGHTS</div>
                 <button onClick={() => setSelDist(null)}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(26,23,18,0.5)', lineHeight: 1, padding: 2 }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(22,17,9,0.5)', lineHeight: 1, padding: 2 }}
                   title="Close">✕</button>
               </div>
-              <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11, marginTop: 8, lineHeight: 1.6, color: '#1a1712' }}>
+              <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11, marginTop: 8, lineHeight: 1.6, color: '#161109' }}>
                 <div>
                   <strong>{(insight.pop / 1000).toFixed(0)}K</strong> people ·{' '}
                   {insight.unitCount.toLocaleString()} {usePrecinct ? 'precincts' : useTracts ? 'tracts' : 'county units'} ·{' '}
-                  pop dev <span style={{ color: Math.abs(insight.dev) <= 0.05 ? 'rgba(26,23,18,0.6)' : '#c44536' }}>
+                  pop dev <span style={{ color: Math.abs(insight.dev) <= 0.05 ? 'rgba(22,17,9,0.6)' : '#c44536' }}>
                     {insight.dev >= 0 ? '+' : ''}{(insight.dev * 100).toFixed(1)}%</span>
                 </div>
-                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,23,18,0.55)' }}>
+                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(22,17,9,0.55)' }}>
                   TWO-PARTY RESULT BY CYCLE
                 </div>
                 {insight.cycles.filter((c) => c.dShare != null).map((c) => (
                   <div key={c.yr} style={{ display: 'flex', gap: 8 }}>
-                    <span style={{ width: 34, color: c.yr === year ? '#1a1712' : 'rgba(26,23,18,0.55)', fontWeight: c.yr === year ? 700 : 400 }}>{c.yr}</span>
-                    <span style={{ width: 64, color: c.winner === 'D' ? '#1e5577' : '#c23c2b', fontWeight: 600 }}>
+                    <span style={{ width: 34, color: c.yr === year ? '#161109' : 'rgba(22,17,9,0.55)', fontWeight: c.yr === year ? 700 : 400 }}>{c.yr}</span>
+                    <span style={{ width: 64, color: c.winner === 'D' ? '#1c557f' : '#be2a1c', fontWeight: 600 }}>
                       {c.winner} {(c.dShare * 100).toFixed(1)}%
                     </span>
-                    <span style={{ color: 'rgba(26,23,18,0.55)' }}>
+                    <span style={{ color: 'rgba(22,17,9,0.55)' }}>
                       {c.winner}+{Math.abs(c.margin).toFixed(1)}{Math.abs(c.margin) <= 10 ? ' · competitive' : ''}
                     </span>
                   </div>
                 ))}
                 {insight.dem && (
                   <>
-                    <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,23,18,0.55)' }}>
+                    <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(22,17,9,0.55)' }}>
                       DEMOGRAPHICS · 2020 CENSUS
                     </div>
                     {insight.dem.rows.map((rw) => (
                       <div key={rw.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ width: 60 }}>{rw.label}</span>
                         <span style={{ width: 36, textAlign: 'right' }}>{(rw.share * 100).toFixed(1)}%</span>
-                        <span style={{ flex: 1, height: 7, background: 'rgba(26,23,18,0.08)' }}>
+                        <span style={{ flex: 1, height: 7, background: 'rgba(22,17,9,0.08)' }}>
                           <span style={{ display: 'block', height: '100%', width: `${Math.min(100, rw.share * 100)}%`, background: '#7a8a9a' }} />
                         </span>
                       </div>
                     ))}
                     {insight.dem.vapShare != null && (
-                      <div style={{ color: 'rgba(26,23,18,0.55)', marginTop: 2 }}>
+                      <div style={{ color: 'rgba(22,17,9,0.55)', marginTop: 2 }}>
                         voting-age (18+): {(insight.dem.vapShare * 100).toFixed(1)}% of pop
                       </div>
                     )}
                   </>
                 )}
-                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(26,23,18,0.55)' }}>
+                <div style={{ marginTop: 10, fontWeight: 600, fontSize: 10, letterSpacing: '0.06em', color: 'rgba(22,17,9,0.55)' }}>
                   COUNTY FIPS COMPOSITION ({insight.counties.length}{insight.countySplitCount ? ` · ${insight.countySplitCount} split across districts` : ' · all whole'})
                 </div>
                 {insight.counties.slice(0, 8).map((c) => (
                   <div key={c.fips} style={{ display: 'flex', gap: 8 }}>
                     <span style={{ width: 54 }}>{c.fips}</span>
                     <span style={{ width: 40, textAlign: 'right' }}>{(c.share * 100).toFixed(0)}%</span>
-                    <span style={{ color: 'rgba(26,23,18,0.55)' }}>
+                    <span style={{ color: 'rgba(22,17,9,0.55)' }}>
                       {(c.pop / 1000).toFixed(0)}K{c.split ? ' · split ⚠' : ''}
                     </span>
                   </div>
                 ))}
                 {insight.counties.length > 8 && (
-                  <div style={{ color: 'rgba(26,23,18,0.5)' }}>+{insight.counties.length - 8} more counties…</div>
+                  <div style={{ color: 'rgba(22,17,9,0.5)' }}>+{insight.counties.length - 8} more counties…</div>
                 )}
               </div>
             </div>
@@ -5006,9 +4995,9 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                   ...S.detailRow,
                   cursor: 'pointer',
                   background: selDist === dist.d ? 'rgba(224,159,62,0.16)' : 'transparent',
-                  boxShadow: selDist === dist.d ? 'inset 3px 0 0 #90493a' : 'none',
+                  boxShadow: selDist === dist.d ? 'inset 3px 0 0 #7c4636' : 'none',
                 }}>
-                <span style={{ flex: '0 0 28px', fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: 'rgba(26,23,18,0.55)' }}>
+                <span style={{ flex: '0 0 28px', fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: 'rgba(22,17,9,0.55)' }}>
                   {dist.d + 1}
                 </span>
                 <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -5019,7 +5008,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                       background: shareToColor(dist.dShare),
                     }}
                   />
-                  <span style={{ fontWeight: dist.winner === 'D' ? 600 : 400, color: dist.winner === 'D' ? '#1e5577' : '#c23c2b' }}>
+                  <span style={{ fontWeight: dist.winner === 'D' ? 600 : 400, color: dist.winner === 'D' ? '#1c557f' : '#be2a1c' }}>
                     {(dist.dShare * 100).toFixed(1)}% D
                   </span>
                 </span>
@@ -5031,7 +5020,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
                   textAlign: 'right',
                   fontFamily: '"JetBrains Mono", monospace',
                   fontSize: 11,
-                  color: Math.abs(dist.dev) <= 0.05 ? 'rgba(26,23,18,0.55)' : '#c44536',
+                  color: Math.abs(dist.dev) <= 0.05 ? 'rgba(22,17,9,0.55)' : '#c44536',
                   fontWeight: Math.abs(dist.dev) > 0.05 ? 600 : 400,
                 }}>
                   {dist.dev >= 0 ? '+' : ''}{(dist.dev * 100).toFixed(1)}%
@@ -6026,12 +6015,10 @@ export default function USRedistrictingDashboard() {
   return (
     <div style={S.app}>
       <style>{globalCSS}</style>
-      <Header />
       <section style={S.headlineSection}>
         <HeadlineRow data={data} year={year} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} seed={seed} setSeed={handleSetSeed} substrate={substrate} setSubstrate={undefined} model={model} setModel={setModel} />
       </section>
       <MapSection data={data} year={year} setYear={handleSetYear} loadStage={loadStage} districting={effDistricting} districtingProgress={effProgress} substrate={substrate} model={model} />
-      <Footer />
     </div>
   );
 }
@@ -6041,7 +6028,7 @@ const globalCSS = `
   * { box-sizing: border-box; }
   body { margin: 0; }
   button { font-family: inherit; cursor: pointer; }
-  ::selection { background: #90493a; color: #1a1712; }
+  ::selection { background: #7c4636; color: #161109; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Tablet and below: 900px */
@@ -6107,7 +6094,7 @@ const globalCSS = `
   }
 
   /* Map scroll hint on touch devices */
-  .r-maphint { display: none; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(26,23,18,0.5); margin-bottom: 10px; }
+  .r-maphint { display: none; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(22,17,9,0.5); margin-bottom: 10px; }
   @media (max-width: 1100px) { .r-maphint { display: block; } }
 
   /* Touch-friendly tap targets for state tiles */
@@ -6119,119 +6106,119 @@ const S = {
   // Phase D: state-detail view styles
   detailHeader: { maxWidth: 1400, margin: "0 auto 30px", padding: "0", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 32, flexWrap: "wrap" },
   detailHeaderControls: { display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-end" },
-  detailClose: { padding: "10px 16px", background: "transparent", color: "#1a1712", border: "1px solid rgba(26,23,18,0.3)", fontFamily: '"JetBrains Mono", monospace', fontSize: 12, letterSpacing: "0.05em", cursor: "pointer" },
+  detailClose: { padding: "10px 16px", background: "transparent", color: "#161109", border: "1px solid rgba(22,17,9,0.3)", fontFamily: '"JetBrains Mono", monospace', fontSize: 12, letterSpacing: "0.05em", cursor: "pointer" },
   detailGrid: { maxWidth: 1400, margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) minmax(280px, 1fr)", gap: 32, alignItems: "stretch" },
-  detailMapWrap: { background: "#f6f1e4", border: "1px solid rgba(26,23,18,0.12)", padding: 20, boxShadow: "0 1px 0 rgba(26,23,18,0.04), 0 8px 24px rgba(26,23,18,0.04)", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 },
+  detailMapWrap: { background: "#ece6d6", border: "1px solid rgba(22,17,9,0.12)", padding: 20, boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 },
   detailMapSvg: { display: "block", width: "100%", height: "auto", maxHeight: 720 },
   detailMapInner: { position: "relative", width: "100%" },
   zoomControls: { position: "absolute", top: 10, right: 10, display: "flex", flexDirection: "column", gap: 6, zIndex: 3 },
-  zoomBtn: { width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, background: "#f6f1e4", color: "#1a1712", border: "1px solid rgba(26,23,18,0.28)", fontFamily: '"JetBrains Mono", monospace', fontSize: 20, lineHeight: 1, cursor: "pointer", boxShadow: "0 1px 3px rgba(26,23,18,0.12)", userSelect: "none" },
+  zoomBtn: { width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, background: "#ece6d6", color: "#161109", border: "1px solid rgba(22,17,9,0.28)", fontFamily: '"JetBrains Mono", monospace', fontSize: 20, lineHeight: 1, cursor: "pointer", boxShadow: "0 1px 3px rgba(22,17,9,0.12)", userSelect: "none" },
   zoomBtnReset: { fontSize: 15 },
   zoomBtnOff: { opacity: 0.32, cursor: "default", boxShadow: "none" },
-  detailPanel: { background: "#f6f1e4", border: "1px solid rgba(26,23,18,0.12)", padding: "24px 24px", boxShadow: "0 1px 0 rgba(26,23,18,0.04), 0 8px 24px rgba(26,23,18,0.04)", display: "flex", flexDirection: "column", gap: 18 },
-  detailPanelHeader: { paddingBottom: 16, borderBottom: "1px solid rgba(26,23,18,0.12)" },
+  detailPanel: { background: "#ece6d6", border: "1px solid rgba(22,17,9,0.12)", padding: "24px 24px", boxShadow: "none", display: "flex", flexDirection: "column", gap: 18 },
+  detailPanelHeader: { paddingBottom: 16, borderBottom: "1px solid rgba(22,17,9,0.12)" },
   detailSeats: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 32, fontWeight: 500, lineHeight: 1, fontVariationSettings: '"opsz" 36', letterSpacing: "-0.015em", marginTop: 6 },
   detailPanelList: { display: "flex", flexDirection: "column", gap: 0, maxHeight: 480, overflowY: "auto" },
-  detailListHeader: { display: "flex", padding: "6px 4px", fontFamily: '"JetBrains Mono", monospace', fontSize: 10, color: "rgba(26,23,18,0.55)", letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: "1px solid rgba(26,23,18,0.12)" },
-  detailRow: { display: "flex", alignItems: "center", padding: "8px 4px", borderBottom: "1px solid rgba(26,23,18,0.06)", fontFamily: '"IBM Plex Sans", sans-serif', fontSize: 13 },
-  detailPanelNote: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 12, color: "rgba(26,23,18,0.55)", lineHeight: 1.5, fontVariationSettings: '"opsz" 14', borderTop: "1px solid rgba(26,23,18,0.12)", paddingTop: 14 },
+  detailListHeader: { display: "flex", padding: "6px 4px", fontFamily: '"JetBrains Mono", monospace', fontSize: 10, color: "rgba(22,17,9,0.55)", letterSpacing: "0.08em", textTransform: "uppercase", borderBottom: "1px solid rgba(22,17,9,0.12)" },
+  detailRow: { display: "flex", alignItems: "center", padding: "8px 4px", borderBottom: "1px solid rgba(22,17,9,0.06)", fontFamily: '"IBM Plex Sans", sans-serif', fontSize: 13 },
+  detailPanelNote: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 12, color: "rgba(22,17,9,0.55)", lineHeight: 1.5, fontVariationSettings: '"opsz" 14', borderTop: "1px solid rgba(22,17,9,0.12)", paddingTop: 14 },
 
   mapSvg: { display: "block", width: "100%", maxWidth: 1400, height: "auto", margin: "0 auto" },
-  hoverInfo: { position: "absolute", top: 28, left: 28, padding: "14px 18px", background: "rgba(253,250,242,0.96)", border: "1px solid rgba(26,23,18,0.15)", boxShadow: "0 4px 20px rgba(26,23,18,0.10)", maxWidth: 420, fontFamily: '"IBM Plex Sans", sans-serif', pointerEvents: "none" },
+  hoverInfo: { position: "absolute", top: 28, left: 28, padding: "14px 18px", background: "rgba(253,250,242,0.96)", border: "1px solid rgba(22,17,9,0.15)", boxShadow: "0 4px 20px rgba(22,17,9,0.10)", maxWidth: 420, fontFamily: '"IBM Plex Sans", sans-serif', pointerEvents: "none" },
   hoverInfoState: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 22, fontWeight: 500, fontVariationSettings: '"opsz" 24', marginBottom: 6, lineHeight: 1.1 },
-  hoverInfoStats: { display: "flex", flexWrap: "wrap", gap: 8, fontSize: 13, color: "rgba(26,23,18,0.78)" },
-  tickerKicker: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.1em", color: "rgba(26,23,18,0.55)", marginBottom: 10 },
+  hoverInfoStats: { display: "flex", flexWrap: "wrap", gap: 8, fontSize: 13, color: "rgba(22,17,9,0.78)" },
+  tickerKicker: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.1em", color: "rgba(22,17,9,0.55)", marginBottom: 10 },
   tickerNum: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 36, fontWeight: 500, lineHeight: 1, fontVariationSettings: '"opsz" 48', letterSpacing: "-0.015em" },
-  headlineNote: { gridColumn: "span 1" },
+  headlineNote: { marginLeft: "auto" },
 
-  app: { fontFamily: '"IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif', background: "#f0ebdd", color: "#1a1712", minHeight: "100vh", paddingBottom: 80 },
-  header: { background: "#1a1712", color: "#f0ebdd", padding: "60px 0 70px" },
+  app: { fontFamily: '"IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif', background: "#f4efe2", color: "#161109", paddingBottom: 0 },
+  header: { background: "#161109", color: "#f4efe2", padding: "60px 0 70px" },
   headerInner: { maxWidth: 1400, margin: "0 auto", padding: "0 40px" },
-  kicker: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.18em", color: "#90493a", marginBottom: 20 },
-  kickerLight: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.18em", color: "#90493a", marginBottom: 20 },
+  kicker: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.18em", color: "#7c4636", marginBottom: 20 },
+  kickerLight: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.18em", color: "#7c4636", marginBottom: 20 },
   h1: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontWeight: 500, fontSize: "clamp(40px, 6vw, 84px)", lineHeight: 0.98, letterSpacing: "-0.025em", margin: 0, fontVariationSettings: '"opsz" 144' },
   lede: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontWeight: 400, fontSize: 21, lineHeight: 1.45, maxWidth: 760, marginTop: 28, color: "#e8dfd1", fontVariationSettings: '"opsz" 24' },
-  headlineSection: { background: "#f0ebdd", borderBottom: "1px solid rgba(26,23,18,0.15)", padding: "30px 0" },
-  headline: { maxWidth: 1400, margin: "0 auto", padding: "0 40px", display: "grid", gridTemplateColumns: "auto auto auto auto 1fr", gap: 32, alignItems: "center" },
-  headlineComputing: { fontFamily: '"JetBrains Mono", monospace', fontSize: 13, letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 12, color: "rgba(26,23,18,0.55)" },
-  spinner: { display: "inline-block", width: 14, height: 14, border: "2px solid rgba(26,23,18,0.2)", borderTopColor: "#90493a", borderRadius: "50%", animation: "spin 0.9s linear infinite" },
+  headlineSection: { background: "#f4efe2", borderTop: "1px solid rgba(22,17,9,0.14)", borderBottom: "1px solid rgba(22,17,9,0.14)", padding: "28px 0" },
+  headline: { maxWidth: 1400, margin: "0 auto", padding: "0 40px", display: "flex", flexWrap: "wrap", alignItems: "flex-start", columnGap: 56, rowGap: 24 },
+  headlineComputing: { fontFamily: '"JetBrains Mono", monospace', fontSize: 13, letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 12, color: "rgba(22,17,9,0.55)" },
+  spinner: { display: "inline-block", width: 14, height: 14, border: "2px solid rgba(22,17,9,0.2)", borderTopColor: "#7c4636", borderRadius: "50%", animation: "spin 0.9s linear infinite" },
   tickerCol: {},
-  tickerLabel: { fontFamily: '"JetBrains Mono", monospace', fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(26,23,18,0.55)", marginBottom: 6 },
+  tickerLabel: { fontFamily: '"JetBrains Mono", monospace', fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(22,17,9,0.55)", marginBottom: 6 },
   tickerScore: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 36, fontWeight: 500, lineHeight: 1, fontVariationSettings: '"opsz" 48', letterSpacing: "-0.015em" },
   tickerScoreDelta: { fontSize: 36 },
-  divider: { margin: "0 8px", color: "rgba(26,23,18,0.4)" },
-  tickerSub: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 12, color: "rgba(26,23,18,0.65)", marginTop: 6, fontVariationSettings: '"opsz" 14', maxWidth: 220, lineHeight: 1.35 },
-  tickerArrow: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 22, color: "rgba(26,23,18,0.35)", fontStyle: "italic" },
-  dColor: { color: "#1e5577", fontWeight: 500 },
-  rColor: { color: "#c23c2b", fontWeight: 500 },
-  reseedBtn: { padding: "10px 20px", background: "#1a1712", color: "#f0ebdd", border: "none", fontFamily: '"IBM Plex Sans", sans-serif', fontSize: 13, fontWeight: 500, letterSpacing: "0.02em" },
+  divider: { margin: "0 8px", color: "rgba(22,17,9,0.4)" },
+  tickerSub: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 12, color: "rgba(22,17,9,0.65)", marginTop: 6, fontVariationSettings: '"opsz" 14', maxWidth: 220, lineHeight: 1.35 },
+  tickerArrow: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 22, color: "rgba(22,17,9,0.35)", fontStyle: "italic" },
+  dColor: { color: "#1c557f", fontWeight: 500 },
+  rColor: { color: "#be2a1c", fontWeight: 500 },
+  reseedBtn: { padding: "10px 20px", background: "#161109", color: "#f4efe2", border: "none", fontFamily: '"IBM Plex Sans", sans-serif', fontSize: 13, fontWeight: 500, letterSpacing: "0.02em" },
   mapSection: { maxWidth: 1400, margin: "0 auto", padding: "60px 40px" },
   mapHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 36, gap: 40 },
   mapHeaderControls: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 18, minWidth: 240 },
   yearSelector: { width: "100%", maxWidth: 640 },
-  yearSelectorLabel: { fontFamily: '"JetBrains Mono", monospace', fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(26,23,18,0.55)", marginBottom: 8 },
-  yearSelectorButtons: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, border: "1px solid rgba(26,23,18,0.18)", padding: 3, background: "#f6f1e4" },
-  yearBtn: { padding: "10px 4px", border: "none", background: "transparent", color: "#1a1712", fontFamily: '"IBM Plex Sans", sans-serif', cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 1, transition: "background 0.15s", minWidth: 0 },
-  yearBtnActive: { background: "#1a1712", color: "#f0ebdd" },
+  yearSelectorLabel: { fontFamily: '"JetBrains Mono", monospace', fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(22,17,9,0.55)", marginBottom: 8 },
+  yearSelectorButtons: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, border: "1px solid rgba(22,17,9,0.18)", padding: 3, background: "#ece6d6" },
+  yearBtn: { padding: "10px 4px", border: "none", background: "transparent", color: "#161109", fontFamily: '"IBM Plex Sans", sans-serif', cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 1, transition: "background 0.15s", minWidth: 0 },
+  yearBtnActive: { background: "#161109", color: "#f4efe2" },
   yearBtnYear: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 17, fontWeight: 500, lineHeight: 1, fontVariationSettings: '"opsz" 18' },
   yearBtnSub: { fontFamily: '"JetBrains Mono", monospace', fontSize: 9, letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 2 },
   sectionTitle: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontWeight: 500, fontSize: "clamp(28px, 4vw, 48px)", lineHeight: 1, letterSpacing: "-0.02em", margin: 0, fontVariationSettings: '"opsz" 144' },
-  sectionTitleLight: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontWeight: 500, fontSize: "clamp(28px, 4vw, 48px)", lineHeight: 1, letterSpacing: "-0.02em", margin: 0, fontVariationSettings: '"opsz" 144', color: "#f0ebdd" },
-  sectionLede: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 17, lineHeight: 1.55, maxWidth: 620, marginTop: 20, color: "rgba(26,23,18,0.7)", fontVariationSettings: '"opsz" 18' },
+  sectionTitleLight: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontWeight: 500, fontSize: "clamp(28px, 4vw, 48px)", lineHeight: 1, letterSpacing: "-0.02em", margin: 0, fontVariationSettings: '"opsz" 144', color: "#f4efe2" },
+  sectionLede: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 17, lineHeight: 1.55, maxWidth: 620, marginTop: 20, color: "rgba(22,17,9,0.7)", fontVariationSettings: '"opsz" 18' },
   sectionLedeLight: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 17, lineHeight: 1.55, maxWidth: 700, marginTop: 20, color: "rgba(245,239,230,0.75)", fontVariationSettings: '"opsz" 18' },
   computingNote: { display: "block", marginTop: 12, fontSize: 13, fontStyle: "normal", opacity: 0.6, fontFamily: '"JetBrains Mono", monospace' },
   legend: { width: "100%", maxWidth: 240 },
-  legendCaption: { fontFamily: '"JetBrains Mono", monospace', fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(26,23,18,0.55)", marginBottom: 8 },
+  legendCaption: { fontFamily: '"JetBrains Mono", monospace', fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(22,17,9,0.55)", marginBottom: 8 },
   legendSwatches: { display: "flex", gap: 2 },
-  legendSwatch: { flex: 1, height: 16, borderRadius: 1.5, border: "0.5px solid rgba(26,23,18,0.15)" },
-  legendLabels: { display: "flex", justifyContent: "space-between", marginTop: 6, fontFamily: '"JetBrains Mono", monospace', fontSize: 10, color: "rgba(26,23,18,0.6)", letterSpacing: "0.05em" },
-  mapWrap: { position: "relative", background: "#f6f1e4", border: "1px solid rgba(26,23,18,0.12)", padding: "20px 12px", overflow: "auto", WebkitOverflowScrolling: "touch", boxShadow: "0 1px 0 rgba(26,23,18,0.04), 0 8px 24px rgba(26,23,18,0.04)" },
-  computing: { height: 400, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 18, color: "rgba(26,23,18,0.5)", background: "#f6f1e4", border: "1px solid rgba(26,23,18,0.1)" },
+  legendSwatch: { flex: 1, height: 16, borderRadius: 1.5, border: "0.5px solid rgba(22,17,9,0.15)" },
+  legendLabels: { display: "flex", justifyContent: "space-between", marginTop: 6, fontFamily: '"JetBrains Mono", monospace', fontSize: 10, color: "rgba(22,17,9,0.6)", letterSpacing: "0.05em" },
+  mapWrap: { position: "relative", background: "#ece6d6", border: "1px solid rgba(22,17,9,0.12)", padding: "20px 12px", overflow: "auto", WebkitOverflowScrolling: "touch", boxShadow: "none" },
+  computing: { height: 400, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 18, color: "rgba(22,17,9,0.5)", background: "#ece6d6", border: "1px solid rgba(22,17,9,0.1)" },
   computingDark: { height: 200, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontStyle: "italic", fontSize: 18, color: "rgba(245,239,230,0.5)" },
-  stateDetail: { marginTop: 20, background: "#f6f1e4", border: "1px solid rgba(26,23,18,0.15)", padding: "20px 28px" },
-  stateDetailHeader: { display: "flex", alignItems: "baseline", gap: 16, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid rgba(26,23,18,0.1)", flexWrap: "wrap" },
-  stateDetailClose: { marginLeft: "auto", background: "transparent", border: "1px solid rgba(26,23,18,0.25)", color: "#1a1712", width: 32, height: 32, fontSize: 18, lineHeight: 1, padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  stateDetail: { marginTop: 20, background: "#ece6d6", border: "1px solid rgba(22,17,9,0.15)", padding: "20px 28px" },
+  stateDetailHeader: { display: "flex", alignItems: "baseline", gap: 16, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid rgba(22,17,9,0.1)", flexWrap: "wrap" },
+  stateDetailClose: { marginLeft: "auto", background: "transparent", border: "1px solid rgba(22,17,9,0.25)", color: "#161109", width: 32, height: 32, fontSize: 18, lineHeight: 1, padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
   stateDetailTitle: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 24, fontWeight: 500, margin: 0, fontVariationSettings: '"opsz" 24' },
-  stateDetailMeta: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: "rgba(26,23,18,0.6)", letterSpacing: "0.05em" },
+  stateDetailMeta: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: "rgba(22,17,9,0.6)", letterSpacing: "0.05em" },
   stateDetailGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 },
-  detailDistrict: { display: "grid", gridTemplateColumns: "12px 70px 1fr auto", alignItems: "center", gap: 8, fontFamily: '"JetBrains Mono", monospace', fontSize: 11, padding: "6px 4px", borderBottom: "1px dashed rgba(26,23,18,0.08)" },
+  detailDistrict: { display: "grid", gridTemplateColumns: "12px 70px 1fr auto", alignItems: "center", gap: 8, fontFamily: '"JetBrains Mono", monospace', fontSize: 11, padding: "6px 4px", borderBottom: "1px dashed rgba(22,17,9,0.08)" },
   detailSwatch: { width: 12, height: 12, borderRadius: 1 },
-  detailDistName: { color: "#1a1712" },
-  detailDistShare: { color: "rgba(26,23,18,0.65)" },
+  detailDistName: { color: "#161109" },
+  detailDistShare: { color: "rgba(22,17,9,0.65)" },
   detailDistWinner: { fontWeight: 600 },
-  ensembleSection: { background: "#1a1712", color: "#f0ebdd", padding: "80px 0" },
+  ensembleSection: { background: "#161109", color: "#f4efe2", padding: "80px 0" },
   sectionHeader: { maxWidth: 1400, margin: "0 auto", padding: "0 40px 36px" },
   ensembleInner: { maxWidth: 1400, margin: "0 auto", padding: "0 40px" },
   ensembleStatsRow: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 32, paddingBottom: 32, borderBottom: "1px solid rgba(245,239,230,0.15)", marginBottom: 32 },
   bigStat: {},
-  bigStatVal: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 56, fontWeight: 500, lineHeight: 1, color: "#90493a", fontVariationSettings: '"opsz" 96', letterSpacing: "-0.02em" },
+  bigStatVal: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 56, fontWeight: 500, lineHeight: 1, color: "#7c4636", fontVariationSettings: '"opsz" 96', letterSpacing: "-0.02em" },
   bigStatSub: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(245,239,230,0.65)", marginTop: 10 },
   histWrap: { position: "relative" },
   histLabel: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(245,239,230,0.55)", marginBottom: 14 },
   hist: { height: 180, display: "flex", alignItems: "flex-end", gap: 4, paddingTop: 12, borderBottom: "1px solid rgba(245,239,230,0.2)" },
-  histBar: { flex: 1, background: "#90493a", minHeight: 2, transition: "height 0.3s" },
+  histBar: { flex: 1, background: "#7c4636", minHeight: 2, transition: "height 0.3s" },
   histAxis: { display: "flex", justifyContent: "space-between", fontFamily: '"JetBrains Mono", monospace', fontSize: 10, color: "rgba(245,239,230,0.55)", marginTop: 8, letterSpacing: "0.05em", flexWrap: "wrap", gap: 8 },
   runsList: { marginTop: 36, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 4 },
   runRow: { display: "grid", gridTemplateColumns: "26px 1fr auto auto", gap: 12, fontFamily: '"JetBrains Mono", monospace', fontSize: 12, padding: "10px 12px", background: "rgba(245,239,230,0.04)", alignItems: "center", minWidth: 0 },
   runIdx: { color: "rgba(245,239,230,0.4)" },
   runScore: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 18, fontWeight: 500 },
   runComp: { color: "rgba(245,239,230,0.5)", fontSize: 11 },
-  proposalSection: { background: "#f0ebdd", padding: "80px 0" },
-  proposalToggle: { marginTop: 30, padding: "12px 28px", background: "#1a1712", color: "#f0ebdd", border: "none", fontFamily: '"IBM Plex Sans", sans-serif', fontSize: 14, fontWeight: 500, letterSpacing: "0.02em" },
+  proposalSection: { background: "#f4efe2", padding: "80px 0" },
+  proposalToggle: { marginTop: 30, padding: "12px 28px", background: "#161109", color: "#f4efe2", border: "none", fontFamily: '"IBM Plex Sans", sans-serif', fontSize: 14, fontWeight: 500, letterSpacing: "0.02em" },
   proposalContent: { maxWidth: 880, margin: "0 auto", padding: "40px" },
-  proposalArticle: { marginBottom: 50, paddingBottom: 50, borderBottom: "1px solid rgba(26,23,18,0.15)" },
+  proposalArticle: { marginBottom: 50, paddingBottom: 50, borderBottom: "1px solid rgba(22,17,9,0.15)" },
   proposalArticleHeader: { display: "flex", alignItems: "baseline", gap: 20, marginBottom: 16 },
   proposalN: { fontFamily: '"JetBrains Mono", monospace', fontSize: 13, color: "#c44536", letterSpacing: "0.08em" },
   proposalTitle: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 30, fontWeight: 500, margin: 0, lineHeight: 1.1, fontVariationSettings: '"opsz" 36', letterSpacing: "-0.015em" },
-  proposalBody: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 16, lineHeight: 1.65, color: "rgba(26,23,18,0.85)", fontVariationSettings: '"opsz" 16' },
+  proposalBody: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 16, lineHeight: 1.65, color: "rgba(22,17,9,0.85)", fontVariationSettings: '"opsz" 16' },
   ol: { paddingLeft: 24, marginTop: 14 },
   ul: { paddingLeft: 24, marginTop: 14 },
-  caveatsSection: { background: "#283d3b", color: "#f0ebdd", padding: "80px 0" },
+  caveatsSection: { background: "#283d3b", color: "#f4efe2", padding: "80px 0" },
   caveatsGrid: { maxWidth: 1400, margin: "0 auto", padding: "0 40px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 0 },
   caveat: { padding: "30px 28px", borderRight: "1px solid rgba(245,239,230,0.15)" },
-  caveatN: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: "#90493a", letterSpacing: "0.1em", marginBottom: 16 },
+  caveatN: { fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: "#7c4636", letterSpacing: "0.1em", marginBottom: 16 },
   caveatHead: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 22, fontWeight: 500, margin: 0, lineHeight: 1.15, fontVariationSettings: '"opsz" 24' },
   caveatBody: { fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 15, lineHeight: 1.55, color: "rgba(245,239,230,0.8)", marginTop: 14, marginBottom: 0, fontVariationSettings: '"opsz" 16' },
-  footer: { background: "#1a1712", color: "rgba(245,239,230,0.7)", padding: "60px 0", marginTop: 80 },
+  footer: { background: "#161109", color: "rgba(245,239,230,0.7)", padding: "60px 0", marginTop: 80 },
   footerInner: { maxWidth: 880, margin: "0 auto", padding: "0 40px", fontFamily: '"Ivy Journal", Georgia, "Times New Roman", serif', fontSize: 15, lineHeight: 1.6, fontVariationSettings: '"opsz" 16' },
 };
