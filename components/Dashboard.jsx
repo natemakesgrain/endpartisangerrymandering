@@ -4633,7 +4633,7 @@ function StateDetailSection({ data, year, setYear, districting, stateCode, onClo
             {k || seats} congressional districts · {useEnacted
               ? <>the <strong>real enacted map</strong> · U.S. Census CD · {year >= 2024 ? 'two-party lean (per-district 2024 returns pending)' : 'real ' + year + ' U.S. House result'}</>
               : <>{stateUnits.length.toLocaleString()}{' '}
-                {usePrecinct ? 'voting precincts · real ' + year + ' returns'
+                {usePrecinct ? 'voting precincts · ' + (PRECINCT_YEARS.includes(year) ? 'real ' + year + ' returns' : 'modeled ' + year + ' (see Methodology)')
                   : useTracts ? 'census tracts' : 'county units'}</>} · max population deviation{' '}
             <span style={{ color: maxDev <= 0.01 ? '#161109' : maxDev <= 0.05 ? '#161109' : '#c44536', fontWeight: 600 }}>
               {(maxDev * 100).toFixed(1)}%

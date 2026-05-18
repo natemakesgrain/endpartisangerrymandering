@@ -6,15 +6,23 @@ This document explains how the dashboard generates congressional district maps f
 
 ## 0. Executive summary
 
-**What this dashboard delivers.** For every U.S. presidential and midterm election cycle from 2000 through 2024, the dashboard produces a neutrally-drawn 435-seat congressional map for all 50 states, with the following verified properties:
+**What this dashboard delivers.** For every U.S. House cycle from 2000 through 2024 — all seven presidential and all six midterm elections — the dashboard shows three maps of the *same* partisan geography, on the real precinct graph of all 50 states:
 
-- **44 of 44 multi-seat states** land inside the ±5 % population-deviation bound courts apply to congressional districts (worst-case state typically 1–3 %, far inside the legal limit) — *under the ReCom pipeline*, where ±5 % is enforced by a stochastic polish loop and multi-seed retry. The default shortest-splitline method reaches comparable balance (≈1–2 % worst-district even for the hardest states — Texas 1.8 % at 38 seats, California 1.3 % at 52) via a *deterministic* bidirectional contiguity-preserving rebalance (no RNG/seed/retry — fully reproducible); being a bounded greedy pass it carries no hard ±ε guarantee, so the state-detail header always reports that map's real worst-district deviation. See §4.8–4.9.
-- **Districts are visibly compact.** Under the shortest-splitline default, compactness *is* the objective function — every cut is the shortest available straight line. Under ReCom, a graph-isoperimetric gate on every accepted spanning-tree cut rejects pathologically elongated pieces, and among multi-seed retries that meet ±5 % the partition with the lowest mean cross-edge count per district is selected, optimizing explicitly for shape.
-- **Every map is bit-for-bit reproducible.** The default shortest-splitline map needs no seed at all — the geography and the open-source reference code fully determine it. ReCom maps are reproducible from a public seed: anyone with the seed, the census-tract geography, and the reference code regenerates the same map, and no party can game a ReCom result without changing the seed protocol itself, which is designed (legislation Part I, Sec. 4(b)(2)) to make pre-commitment infeasible.
-- **No partisan or incumbency data is consumed** at any step. The algorithm sees only census-block / tract geography, population, and adjacency.
-- **~100–130 competitive districts per cycle** (|margin| ≤ 10 percentage points) under neutral procedure, versus 37 (2024) and 71 (2022) under the actually-enacted post-2020 House maps. Across all 13 cycles in the dashboard, real maps produced 23–89 competitive seats; the algorithm produces ~100–130 every time. The contrast is what the dashboard exists to display.
+- **The enacted map** — the congressional districts a state actually used that cycle, from U.S. Census Bureau cartographic-boundary shapefiles, colored by the **real U.S. House result**. Its seat tally *is* the official, documented outcome (Clerk of the House), so it can be read against the baselines below.
+- **Shortest-splitline (the neutral default)** — a fully deterministic recursive bisection; a state and its seat count determine exactly one map, with no random seed.
+- **ReCom** — a seeded recombination Markov chain; the same public seed reproduces a map, different seeds produce different valid neutral maps.
 
-**What the algorithm does not decide.** The Markov chain decides nothing about who wins; it decides only the shape of the contest. Specifically, it does not optimize for proportional representation (see §6.6 below on why), does not preserve "communities of interest" (a known cost, see §6.7), and does not condition on race (a design choice; see Drafter's Note in the legislation). The legislation Part I treats those decisions as political, not algorithmic — the Independent Districting Standards Board is the political body that decides which neutral algorithm to use, and the seed protocol is the political process that decides which valid map within that algorithm's distribution is drawn each cycle.
+Verified properties of the two neutral baselines:
+
+- **Population balance.** Shortest-splitline reaches ≈1–2 % worst-district even for the hardest states (Texas 1.8 % at 38 seats, California 1.3 % at 52) via a *deterministic* contiguity-preserving rebalance — no RNG, seed, or retry. ReCom holds the ±5 % bound courts apply, enforced by a stochastic polish loop and multi-seed retry. The state-detail header always reports the displayed map's real worst-district deviation. See §4.8–4.9.
+- **Compactness.** Under splitline, compactness *is* the objective — every cut is the shortest available straight line. Under ReCom, a graph-isoperimetric gate rejects pathologically elongated pieces and the lowest-cross-edge partition among valid retries is kept.
+- **Reproducibility.** The splitline map needs no seed: the geography and the open-source reference code fully determine it. ReCom is reproducible from a public seed; the seed protocol (legislation Part I, Sec. 4(b)(2)) makes pre-commitment infeasible.
+- **No partisan or incumbency data** is consumed in drawing either neutral map. They see only geography, population, and adjacency.
+- **The gap is the finding.** Holding each cycle's votes fixed and changing only the lines, the enacted plan typically yields far fewer competitive seats than a neutral one (37 competitive in the enacted 2024 House, 71 in 2022; the neutral baselines produce ~100–130 every cycle). That contrast — real outcome versus neutral baseline on identical votes — is what the dashboard exists to display.
+
+**The substrate and the votes.** Every map is dissolved from the real **2020-VTD precinct graph** (Dave's Redistricting / VEST). Four cycles have actually-counted precinct returns — the presidential precinct cycles 2008, 2012, 2016, 2020; the other nine are **modeled** per precinct from the official county results and labelled MODELED throughout (§3.5). Seat counts use each cycle's governing apportionment across four censuses (§2).
+
+**What the neutral algorithm does not decide.** It decides nothing about who wins — only the shape of the contest. It does not optimize for proportional representation (§6.6), does not preserve "communities of interest" (§6.7), and does not condition on race (§6.8). The legislation Part I treats those as political, not algorithmic, decisions.
 
 ---
 
@@ -30,17 +38,15 @@ This dashboard generates maps **algorithmically**, with no input from political 
 
 ## 2. Data sources
 
-**Geography.** County polygons come from the U.S. Census Bureau's 2020 cartographic boundary shapefiles (`cb_2020_us_county_500k`), simplified and pre-projected to Albers USA pixel space via the `us-atlas` library (Bostock 2010-present). Tract-level data (used in the state-detail view when configured) comes from the corresponding tract-level shapefiles (`cb_2020_<FIPS>_tract_500k`), processed identically.
+A short, plain-English version of this section — what every number on the dashboard comes from, and which cycles are real versus modeled — is also on the **[Data &amp; sources](/data)** page. The full derivations are in §3.5 (precinct vote model), §3.6 (enacted maps) and §6.2 (midterm county model).
 
-**Population.** 2020 Decennial Census P1 table totals, fetched per-county and per-tract from the Census Bureau's API (`api.census.gov/data/2020/dec/pl`). The *same* 2020 population is used to balance districts in every cycle, including pre-2020 ones — building a true per-decade per-unit population series would require reconciling three different county/tract geographies (counties merge and split, tracts are fully redrawn each census) and the 1990/2000/2010 P.L. files, a separate pipeline not embedded here. Using 2020 population as a cross-decade balancing proxy is a disclosed modeling approximation in the same class as the modeled midterms and the density-disaggregated tract partisanship; it shifts where a balanced cut lands slightly but does not change the *number* of districts, which is set exactly per decade by apportionment (next paragraph).
+**Precinct geometry &amp; adjacency.** The substrate is the real 2020 voting-district (VTD / precinct) geometry and rook-adjacency graph for all 50 states, from Dave's Redistricting's `vtd_data` compilation (VEST-sourced, public domain). Every displayed district — enacted, splitline or ReCom — is dissolved from these precinct units, so the lines follow real precinct boundaries. Polygons are pre-projected to Albers USA pixel space (`d3-geo geoAlbersUsa().scale(1300).translate([487.5, 305])`) and clipped to the Census county land mask so open water reads as neutral.
 
-**Election results.** Two-party returns for **13 cycles — seven presidential (2000, 2004, 2008, 2012, 2016, 2020, 2024) and six midterm (2002, 2006, 2010, 2014, 2018, 2022)**.
+**Population.** 2020 Decennial Census P.L. 94-171 totals carried on each precinct. The *same* 2020 population balances districts in every cycle; building a true per-decade precinct-population series would require precinct geographies that do not exist before 2020. This cross-decade balancing proxy is a disclosed approximation (same class as the modeled cycles); it nudges where a balanced cut lands but never changes the *number* of districts, which is set exactly per decade by apportionment (below).
 
-*Presidential cycles* use official county-level returns from the MIT Election Data and Science Lab, accessed via the [stiles/presidential-elections](https://github.com/stiles/presidential-elections) processed JSON for 2000–2012 and via [tonmcg/US_County_Level_Election_Results_08-24](https://github.com/tonmcg/US_County_Level_Election_Results_08-24) for 2016/2020/2024. National 2-party D-share for each year matches the FEC-certified popular vote total to within 0.1 percentage points.
+**Election results — four real precinct cycles, nine modeled.** Dave's Redistricting carries actually-counted precinct returns for **four presidential precinct cycles: 2008, 2012, 2016, 2020**. These are real, observed data. The other nine cycles — 2000, 2004, 2024 presidential and the six midterms (2002/06/10/14/18/22) — have no precinct-level returns, so they are **modeled per precinct from the official county results** using each precinct's learned partisan lean and election-over-election drift, rescaled so every county's D and R totals match the official figures bit-for-bit (§3.5). County truth is preserved exactly; only the within-county split is modeled. The county figures themselves are: real FEC-certified county returns for the seven presidential cycles (MIT Election Data &amp; Science Lab, via the stiles/presidential-elections and tonmcg county tabulations); the per-state U.S.-House-swing model of §6.2 for the six midterms. Modeled cycles are labelled **MODELED** in the headline and map lede; midterms are doubly modeled and say so.
 
-*Midterm cycles* are **modeled** — county-level U.S. House results don't exist as a unified dataset because counties can be split across multiple congressional districts. Instead we take each state's real two-party U.S. House aggregate D-share (from the MIT EDSL 1976–2022 House dataset) and apply a per-state logit-space swing to the nearest presidential year's real county pattern, rescaling so the state's modeled total matches the actual state House vote exactly. This captures the real per-state midterm swing geographically (e.g. 2018's massive D shift in California vs the much smaller shift in Tennessee both fall out of state-level swings, not a uniform national correction) while holding within-state county rankings constant at the base presidential year. The recovered national 2-party share for each modeled cycle lands within 0.2 percentage points of the FEC-reported House popular vote. See [scripts/build-midterm-votes.mjs](https://github.com/natemakesgrain/endpartisangerrymandering/blob/main/scripts/build-midterm-votes.mjs) for the implementation. Midterm years are labeled "MODELED" in the dashboard headline so the reader knows which substrate they're looking at.
-
-**Tract-level partisanship is also modeled, not measured** — no federal authority publishes precinct-to-tract election crosswalks. Rather than disaggregating county votes uniformly (every tract gets the parent county's per-capita D-share, erasing all within-county variation), we apply a **population-density partisanship model**: each tract is shifted in logit space by `0.45 × log(tract_density / county_median_density)`, then per-county per-year rescaled so the county's tract-D-vote sum exactly matches the official county D-vote total (and same for R). See §3.4 for the full derivation. The 0.45 coefficient is in the lower end of national multilevel-model estimates of the log-density-to-logit-D slope from Rodden, Chen, and the post-2016 partisan-geography literature.
+**Enacted maps.** The real congressional district lines come from U.S. Census Bureau cartographic-boundary CD shapefiles, one per Congress (mid-decade court redraws captured); they are colored by the **real U.S. House result** — per-district returns from the MIT EDSL U.S.-House 1976–2022 dataset, with the seat tally pinned to the canonical Clerk-of-the-House figures so the enacted total *is* the documented outcome. Full sourcing, the per-Congress file table, and the 2024 caveat are in §3.6.
 
 **Apportionment (per decade).** The 435 House seats are reapportioned among the 50 states after every decennial census, and a new apportionment governs elections **two years** after its census. The dashboard embeds the full per-decade seat table from the Census Bureau's *Table C1, "Number of Seats in U.S. House of Representatives by State: 1910 to 2020."* Election year → governing census:
 
@@ -55,17 +61,13 @@ So viewing 2004 splits each state into its **2000-census** district count (Texas
 
 ---
 
-## 3. Substrate: counties, fragments, tracts
+## 3. The substrate
 
-The algorithm partitions the state into districts by assigning **units** to districts, where each unit is an indivisible building block. Three substrates exist in the codebase, but in practice the dashboard is **tract-substrate-by-default** for every multi-seat state:
+The dashboard runs on a **single substrate: the real 2020-VTD precinct graph**, for all 50 states. Every displayed map — enacted, shortest-splitline, or ReCom — is built by assigning indivisible **precinct** units to districts and dissolving. That substrate, and how the nine cycles without real precinct returns are modeled, is **§3.5**; the real enacted maps are **§3.6**. Single-seat states (AK, DE, MT 2010s, ND, SD, VT, WY in the relevant decades) have no partition to compute — the whole state is the one at-large district.
 
-1. The national pass begins with county-fragment substrate (§§3.1–3.2) for a fast first render.
-2. Every multi-seat state is then **automatically upgraded** to tract substrate (§3.3) — for both the algorithm and the rendering — so the national view and the state-detail view show the same partition with the same boundaries. The county-fragment substrate is therefore a transient intermediate state, not the deployed substrate.
-3. Single-seat states (AK, DE, ND, SD, VT, WY) skip the upgrade because there's no partitioning to do: every census block in the state is in the single at-large district.
+§§3.1–3.4 below document the project's **original** county → county-fragment → census-tract pipeline. It is **no longer the displayed substrate**: it produces no map the dashboard shows. It is retained only to supply the **land mask** (precinct polygons are clipped to Census county land geometry so open water reads as neutral) and the national state outlines. It is kept here because the precinct vote model (§3.5) and the population renormalization reuse the same county-truth discipline, and because the design history is part of the honest record — not because any partition you see comes from it.
 
-The three substrates:
-
-### 3.1 County-level (default)
+### 3.1 County-level (legacy — superseded by §3.5)
 
 3,143 U.S. counties (and county-equivalents like Louisiana parishes, Alaska boroughs) form the natural unit set. ReCom (the partition algorithm — see §4) assigns each county to a district such that contiguous groups of counties form equal-population districts.
 
@@ -89,7 +91,7 @@ This produces N fragments that look like horizontal or vertical strips cutting t
 
 **Tradeoff.** Slab cuts are arbitrary — population balance demands they exist, but their exact placement is a function of the algorithm, not real geography. When two adjacent fragments end up in different districts, the "boundary between them" is not a meaningful district line — it's an artifact. The dashboard renders these slab-cut boundaries as dashed light strokes (rather than solid black) to signal their approximate nature, while real geographic boundaries (county lines, state lines) get solid strokes.
 
-### 3.3 Census tracts (national auto-upgrade + state-detail view)
+### 3.3 Census tracts (legacy auto-upgrade — superseded by §3.5)
 
 Tracts are the canonical fine-grained Census Bureau unit: ~84,000 nationwide, ~2,000-9,000 per state, average ~3,500 people each. At tract granularity, no tract is larger than the target district population, so no subdivision is needed. Ramifications:
 
@@ -532,9 +534,9 @@ The dashboard makes a number of modeling choices and trade-offs. We disclose the
 
 ### Data limitations
 
-### 6.1 Tract-level partisan vote totals are modeled, not measured.
+### 6.1 Nine of the thirteen cycles' precinct votes are modeled, not counted.
 
-No federal authority publishes precinct-to-tract election crosswalks, so tract-level vote totals don't exist as direct observations. The dashboard disaggregates official county D and R totals to tracts using the population-density model in §3.4 (logit-space shift proportional to log-density-relative-to-county-median, rescaled per-county-per-year so tract sums match official county totals exactly). This adds the strongest non-racial geographic predictor of partisanship to the within-county picture without inventing votes. **A more complete model would incorporate race (Census table B02001), Hispanic origin (B03002), and educational attainment (B15003).** The build pipeline for that fetch is straightforward given a Census API key; we left it for a future iteration to avoid a key dependency in the deployment.
+Only four cycles have actually-counted precinct returns: the presidential precinct cycles **2008, 2012, 2016, 2020**. The other nine (2000, 2004, 2024 presidential and the six midterms) are **modeled per precinct** from the official county results via each precinct's learned lean and drift, rescaled so every county's D and R totals match the official figures bit-for-bit (§3.5). County-level truth — and therefore the national popular vote and any whole-county aggregate — is exact; only the within-county distribution across precincts is inferred. The six midterms are *doubly* modeled, because their county figure is itself the per-state House-swing estimate of §6.2. Every modeled cycle is labelled **MODELED** in the headline and map lede; the dashboard reads `modeledYears` from each state's file so a cycle can never be silently mislabelled. The single linear precinct drift `β_p` cannot capture non-linear realignments and is damped on far-extrapolated cycles; these are estimates, presented as such, not returns.
 
 ### 6.2 Midterm-cycle vote totals are modeled at the per-state level.
 
@@ -582,7 +584,7 @@ Some states have geometric-compactness statutes that use Polsby–Popper, Reock,
 
 ### 6.10 ±5 % population balance.
 
-*Karcher v. Daggett*, 462 U.S. 725 (1983), held that even small population deviations in congressional districts require justification; modern courts generally accept ±0.5 % to ±1 %, while ±5 % is the looser bound the Department of Justice has flagged as the upper end of "tolerable" *if* justified by traditional districting criteria. Real states routinely draw maps inside ±0.5 %. **Under the ReCom model the dashboard delivers ±5 % in all 44 multi-seat states, with a typical worst-state deviation in the 1–3 % range and a per-state median below 1 %**, achieved via the auto-upgrade-to-tract pipeline (§3.3): every state's partition runs at tract granularity (~3,500 people per unit), so the unit graph has enough degrees of freedom to land balanced partitions reliably. The **default shortest-splitline** model is not bound-guaranteed but measures ≈1–2 % worst-district in practice (TX 1.8 %, CA 1.3 %; §4.8) — a *deterministic* result rather than an enforced bound. Either way the variance metric in the headline reports the actual worst-state deviation in real time so the reader can verify directly rather than trust a claim.
+*Karcher v. Daggett*, 462 U.S. 725 (1983), held that even small population deviations in congressional districts require justification; modern courts generally accept ±0.5 % to ±1 %, while ±5 % is the looser bound the Department of Justice has flagged as the upper end of "tolerable" *if* justified by traditional districting criteria. Real states routinely draw maps inside ±0.5 %. Both neutral baselines run on the **precinct** graph (~2–8 k people per unit), which has more than enough degrees of freedom to balance: **shortest-splitline** (the default) measures ≈1–2 % worst-district even on the hardest states (TX 1.8 %, CA 1.3 %; §4.8) as a *deterministic* result rather than an enforced bound; **ReCom** holds the ±5 % bound in every multi-seat state via its stochastic polish loop and multi-seed retry, with a typical worst-state deviation in the 1–3 % range. Either way the variance metric in the state-detail header reports the displayed map's actual worst-district deviation in real time, so the reader can verify directly rather than trust a claim. (The enacted maps are the real district lines; their population deviation against current population is shown for reference and is not a neutral-map metric — see §3.6.)
 
 ---
 
@@ -600,8 +602,10 @@ Some states have geometric-compactness statutes that use Polsby–Popper, Reock,
 - Cain et al. (2018). "A reasonable bias method for redistricting." arXiv:1804.07003.
 - Hawes (2020). "Implementing differential privacy: Seven lessons from the 2020 United States Census." *Harvard Data Science Review* 2(2).
 - Agafonkin, Vladimir (2016). "polylabel: a fast algorithm for finding the pole of inaccessibility of a polygon." Mapbox.
-- U.S. Census Bureau (2021). "2020 Census Apportionment Results."
-- MIT Election Data and Science Lab. "U.S. President 1976-2024" county-level returns.
+- U.S. Census Bureau (2021). "2020 Census Apportionment Results" (Table C1, 1910–2020).
+- U.S. Census Bureau. 2020 Decennial P.L. 94-171 Redistricting Data; cartographic-boundary congressional-district shapefiles (per Congress).
+- MIT Election Data and Science Lab. "U.S. President 1976–2024" and "U.S. House 1976–2022" returns; via the stiles/presidential-elections and tonmcg county tabulations.
+- Dave's Redistricting — `vtd_data` 2020-VTD precinct geometry and returns (VEST-sourced, public domain).
 
 ## 8. Court cases referenced
 

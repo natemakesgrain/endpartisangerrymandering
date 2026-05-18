@@ -5,7 +5,7 @@ import Prose from '@/components/Prose';
 export const metadata = {
   title: 'Methodology — End Partisan Gerrymandering Project',
   description:
-    'How the dashboard draws districts: data sources, three substrates (counties, fragments, tracts), the shortest-splitline and ReCom algorithms, rendering, and limitations.',
+    'How the dashboard draws districts: the precinct substrate and the modeled cycles, the real enacted maps, the shortest-splitline (default) and ReCom algorithms, rendering, and honest limitations.',
 };
 
 export default function MethodologyPage() {
@@ -28,9 +28,10 @@ export default function MethodologyPage() {
         <p className="page-kicker">Technical overview · with citations</p>
         <h1 className="page-title">How the dashboard draws districts.</h1>
         <p className="page-deck">
-          Data sources, three substrates, two partitioning algorithms
-          (shortest-splitline and ReCom), rendering, and the things these
-          methods deliberately do not do.
+          The precinct substrate and the cycles we model, the real enacted
+          maps, two neutral partitioners — shortest-splitline (the default)
+          and ReCom — rendering, and the things these methods deliberately
+          do not do.
         </p>
       </header>
       <Prose>{body}</Prose>

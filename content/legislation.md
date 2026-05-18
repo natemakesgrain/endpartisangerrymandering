@@ -581,9 +581,11 @@ should look like a typical plan from the neutral-procedure distribution.
 Plans that lie far in the tail of that distribution are suspect; plans
 that lie near the median are not. The dashboard's contemporary outputs
 make this concrete: in a year like 2024 with a 49.2 D / 50.8 R two-party
-popular vote, the algorithmically-drawn House lands at roughly D 197 /
-R 238 — a 2-3 point structural R advantage in seats arising from the
-geographic distribution of partisans, not from any drawing choice.
+popular vote, the neutrally-drawn House lands near D 199 / R 236 — a
+2–3 point structural R advantage in seats arising from the geographic
+distribution of partisans, not from any drawing choice (against an
+enacted D 215 / R 220 that cycle, the comparison the dashboard exists
+to show).
 Reproducing that structural advantage in a neutral plan is a feature,
 not a bug, of the procedure. *See* Goedert, "Gerrymandering or
 Geography? How Democrats Won the Popular Vote but Lost the Congress in
